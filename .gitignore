@@ -4,3 +4,11 @@ backend/go.sum
 backend/go.mod
 node_modules/
 mobile/.expo
+android/
+build/
+*.apk
+*.aar
+*.jks
+.expo/
+.pnpm-debug.log*.expo/
+.pnpm-debug.log*
