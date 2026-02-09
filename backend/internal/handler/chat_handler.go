@@ -11,22 +11,22 @@ import (
 )
 
 type ChatHandler struct {
-	chatSvc service.ChatService
-	taskSvc service.TaskService
+	chatSvc  service.ChatService
+	taskSvc  service.TaskService
 	claimSvc service.ClaimService
 }
 
 func NewChatHandler(chatSvc service.ChatService, taskSvc service.TaskService, claimSvc service.ClaimService) *ChatHandler {
 	return &ChatHandler{
-		chatSvc: chatSvc,
-		taskSvc: taskSvc,
+		chatSvc:  chatSvc,
+		taskSvc:  taskSvc,
 		claimSvc: claimSvc,
 	}
 }
 
 func (h *ChatHandler) GetChats(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	taskID := c.Param("task_id")
+	taskID := c.Param("tid")
 
 	chats, err := h.chatSvc.GetChatsByTaskID(c.Request.Context(), parseUUID(taskID), userID)
 	if err != nil {
@@ -39,7 +39,7 @@ func (h *ChatHandler) GetChats(c *gin.Context) {
 
 func (h *ChatHandler) GetOrCreateChat(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	taskID := parseUUID(c.Param("task_id"))
+	taskID := parseUUID(c.Param("tid"))
 
 	// Get task to find owner
 	task, err := h.taskSvc.GetTask(c.Request.Context(), taskID)

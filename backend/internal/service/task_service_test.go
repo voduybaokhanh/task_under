@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/task-underground/backend/internal/domain"
-	"github.com/task-underground/backend/internal/repository"
 )
 
 // Mock repositories for testing

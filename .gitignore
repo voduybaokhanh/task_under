@@ -1,2 +1,6 @@
 
 .env
+backend/go.sum
+backend/go.mod
+node_modules/
+mobile/.expo

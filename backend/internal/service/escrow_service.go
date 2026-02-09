@@ -104,11 +104,6 @@ func (s *escrowService) ReleaseEscrow(ctx context.Context, taskID, userID uuid.U
 }
 
 func (s *escrowService) RefundEscrow(ctx context.Context, taskID, userID uuid.UUID, amount float64) error {
-	task, err := s.taskRepo.GetByID(ctx, taskID)
-	if err != nil {
-		return err
-	}
-
 	tx := &domain.EscrowTransaction{
 		ID:              uuid.New(),
 		TaskID:          taskID,
@@ -118,7 +113,7 @@ func (s *escrowService) RefundEscrow(ctx context.Context, taskID, userID uuid.UU
 		Status:          domain.EscrowStatusPending,
 	}
 
-	err = s.escrowRepo.CreateTransaction(ctx, tx)
+	err := s.escrowRepo.CreateTransaction(ctx, tx)
 	if err != nil {
 		return err
 	}

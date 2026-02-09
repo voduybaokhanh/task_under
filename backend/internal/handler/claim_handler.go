@@ -18,7 +18,7 @@ func NewClaimHandler(claimSvc service.ClaimService) *ClaimHandler {
 
 func (h *ClaimHandler) ClaimTask(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	taskID := c.Param("task_id")
+	taskID := c.Param("tid")
 
 	claim, err := h.claimSvc.ClaimTask(c.Request.Context(), parseUUID(taskID), userID)
 	if err != nil {
@@ -50,7 +50,7 @@ func (h *ClaimHandler) GetClaim(c *gin.Context) {
 }
 
 func (h *ClaimHandler) GetClaimsByTask(c *gin.Context) {
-	taskID := c.Param("task_id")
+	taskID := c.Param("tid")
 
 	claims, err := h.claimSvc.GetClaimsByTaskID(c.Request.Context(), parseUUID(taskID))
 	if err != nil {
@@ -62,8 +62,8 @@ func (h *ClaimHandler) GetClaimsByTask(c *gin.Context) {
 }
 
 type SubmitCompletionRequest struct {
-	Text      string `json:"text" binding:"required"`
-	ImageURL  string `json:"image_url"`
+	Text     string `json:"text" binding:"required"`
+	ImageURL string `json:"image_url"`
 }
 
 func (h *ClaimHandler) SubmitCompletion(c *gin.Context) {

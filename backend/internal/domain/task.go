@@ -33,9 +33,8 @@ type Task struct {
 
 func (t *Task) CanBeClaimed() bool {
 	now := time.Now()
-	return t.Status == TaskStatusOpen &&
-		now.Before(t.ClaimDeadline) &&
-		!t.EscrowLocked
+	return (t.Status == TaskStatusOpen || t.Status == TaskStatusClaimed) &&
+		now.Before(t.ClaimDeadline)
 }
 
 func (t *Task) ShouldAutoCancel() bool {

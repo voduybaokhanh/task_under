@@ -82,12 +82,37 @@ type mockTaskRepoForClaimSvc struct {
 	tasks map[uuid.UUID]*domain.Task
 }
 
+func (m *mockTaskRepoForClaimSvc) Create(ctx context.Context, task *domain.Task) error {
+	m.tasks[task.ID] = task
+	return nil
+}
+
 func (m *mockTaskRepoForClaimSvc) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
 	task, ok := m.tasks[id]
 	if !ok {
 		return nil, sql.ErrNoRows
 	}
 	return task, nil
+}
+
+func (m *mockTaskRepoForClaimSvc) GetByOwnerID(ctx context.Context, ownerID uuid.UUID, limit, offset int) ([]*domain.Task, error) {
+	var result []*domain.Task
+	for _, task := range m.tasks {
+		if task.OwnerID == ownerID {
+			result = append(result, task)
+		}
+	}
+	return result, nil
+}
+
+func (m *mockTaskRepoForClaimSvc) GetOpenTasks(ctx context.Context, limit, offset int) ([]*domain.Task, error) {
+	var result []*domain.Task
+	for _, task := range m.tasks {
+		if task.Status == domain.TaskStatusOpen {
+			result = append(result, task)
+		}
+	}
+	return result, nil
 }
 
 func (m *mockTaskRepoForClaimSvc) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.TaskStatus) error {
@@ -99,6 +124,23 @@ func (m *mockTaskRepoForClaimSvc) UpdateStatus(ctx context.Context, id uuid.UUID
 	return nil
 }
 
+func (m *mockTaskRepoForClaimSvc) SetEscrowLocked(ctx context.Context, id uuid.UUID, locked bool) error {
+	task, ok := m.tasks[id]
+	if !ok {
+		return sql.ErrNoRows
+	}
+	task.EscrowLocked = locked
+	return nil
+}
+
+func (m *mockTaskRepoForClaimSvc) GetTasksPastClaimDeadline(ctx context.Context) ([]*domain.Task, error) {
+	return nil, nil
+}
+
+func (m *mockTaskRepoForClaimSvc) GetTasksPastOwnerDeadline(ctx context.Context) ([]*domain.Task, error) {
+	return nil, nil
+}
+
 type mockChatRepoForClaimSvc struct{}
 
 func (m *mockChatRepoForClaimSvc) GetOrCreate(ctx context.Context, taskID, participantID, otherParticipantID uuid.UUID) (*domain.Chat, error) {
@@ -108,6 +150,26 @@ func (m *mockChatRepoForClaimSvc) GetOrCreate(ctx context.Context, taskID, parti
 		ParticipantID:      participantID,
 		OtherParticipantID: otherParticipantID,
 	}, nil
+}
+
+func (m *mockChatRepoForClaimSvc) GetByID(ctx context.Context, id uuid.UUID) (*domain.Chat, error) {
+	return &domain.Chat{ID: id}, nil
+}
+
+func (m *mockChatRepoForClaimSvc) GetByTaskIDAndUserID(ctx context.Context, taskID, userID uuid.UUID) ([]*domain.Chat, error) {
+	return []*domain.Chat{}, nil
+}
+
+func (m *mockChatRepoForClaimSvc) DeleteForUser(ctx context.Context, chatID, userID uuid.UUID) error {
+	return nil
+}
+
+func (m *mockChatRepoForClaimSvc) CreateMessage(ctx context.Context, message *domain.Message) error {
+	return nil
+}
+
+func (m *mockChatRepoForClaimSvc) GetMessagesByChatID(ctx context.Context, chatID uuid.UUID, limit, offset int) ([]*domain.Message, error) {
+	return []*domain.Message{}, nil
 }
 
 func TestClaimTask(t *testing.T) {

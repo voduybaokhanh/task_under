@@ -5,6 +5,7 @@ A privacy-focused, anonymous task-for-reward marketplace built with Go (backend)
 ## Overview
 
 This is an anonymous task marketplace where:
+
 - Users remain anonymous (device-based identity, no email/password)
 - Task owners post tasks with monetary rewards
 - Claimers can claim and complete tasks
@@ -17,6 +18,7 @@ This is an anonymous task marketplace where:
 ### Backend (Go)
 
 **Layers:**
+
 - **Domain**: Core business entities (User, Task, Claim, Chat, Escrow)
 - **Repository**: Data access layer (PostgreSQL)
 - **Service**: Business logic layer
@@ -24,6 +26,7 @@ This is an anonymous task marketplace where:
 - **WebSocket**: Real-time communication hub
 
 **Key Design Decisions:**
+
 - Clean architecture with clear separation of concerns
 - Repository pattern for testability
 - Service layer encapsulates business rules
@@ -33,12 +36,14 @@ This is an anonymous task marketplace where:
 ### Mobile (React Native + Expo)
 
 **Structure:**
+
 - **Screens**: UI components (TaskList, TaskDetail, CreateTask, Chat)
 - **Store**: Zustand state management
 - **Services**: API client and WebSocket client
 - **Types**: TypeScript type definitions
 
 **Key Design Decisions:**
+
 - Zustand for simple, performant state management
 - Device-based authentication (X-Device-ID header)
 - AsyncStorage for device ID persistence
@@ -47,6 +52,7 @@ This is an anonymous task marketplace where:
 ## Database Schema
 
 ### Core Tables
+
 - **users**: Anonymous users (device_id based)
 - **tasks**: Task listings with deadlines and rewards
 - **claims**: User claims on tasks
@@ -56,6 +62,7 @@ This is an anonymous task marketplace where:
 - **arbitrations**: Dispute resolution (extensible)
 
 ### Key Constraints
+
 - Task claim deadlines must be before owner deadlines
 - Claim limits enforced at database level
 - Escrow locked on task creation
@@ -83,6 +90,7 @@ This is an anonymous task marketplace where:
 ## Setup & Running
 
 ### Prerequisites
+
 - Go 1.22+
 - Node.js 18+
 - Docker & Docker Compose
@@ -92,11 +100,13 @@ This is an anonymous task marketplace where:
 ### Backend Setup
 
 1. **Start dependencies:**
+
 ```bash
 docker-compose up -d postgres redis
 ```
 
 2. **Run migrations:**
+
 ```bash
 # Install migrate tool
 go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
@@ -106,12 +116,14 @@ migrate -path backend/migrations -database "postgres://postgres:postgres@localho
 ```
 
 3. **Set environment variables:**
+
 ```bash
 export DATABASE_URL="postgres://postgres:postgres@localhost:5432/task_underground?sslmode=disable"
 export PORT=8080
 ```
 
 4. **Run backend:**
+
 ```bash
 cd backend
 go mod download
@@ -123,18 +135,21 @@ Backend will be available at `http://localhost:8080`
 ### Mobile Setup
 
 1. **Install dependencies:**
+
 ```bash
 cd mobile
 npm install
 ```
 
 2. **Configure API URL:**
-Create `.env` file:
+   Create `.env` file:
+
 ```
 EXPO_PUBLIC_API_URL=http://localhost:8080
 ```
 
 3. **Run mobile app:**
+
 ```bash
 npm start
 ```
@@ -148,6 +163,7 @@ docker-compose up
 ```
 
 This starts:
+
 - PostgreSQL on port 5432
 - Redis on port 6379
 - Backend on port 8080
@@ -155,12 +171,14 @@ This starts:
 ## API Endpoints
 
 ### Tasks
+
 - `POST /api/v1/tasks` - Create task
 - `GET /api/v1/tasks` - List open tasks
 - `GET /api/v1/tasks/my` - Get user's tasks
-- `GET /api/v1/tasks/:id` - Get task details
+- `GET /api/v1/task/:id` - Get task details
 
 ### Claims
+
 - `POST /api/v1/tasks/:task_id/claims` - Claim a task
 - `GET /api/v1/tasks/:task_id/claims` - Get claims for task
 - `GET /api/v1/claims/:id` - Get claim details
@@ -169,6 +187,7 @@ This starts:
 - `POST /api/v1/claims/:id/reject` - Reject claim (owner)
 
 ### Chat
+
 - `GET /api/v1/tasks/:task_id/chats` - Get chats for task
 - `POST /api/v1/tasks/:task_id/chats` - Get or create chat
 - `DELETE /api/v1/chats/:id` - Delete chat
@@ -176,17 +195,20 @@ This starts:
 - `GET /api/v1/chats/:id/messages` - Get messages
 
 ### WebSocket
+
 - `GET /ws` - WebSocket connection (requires X-Device-ID header)
 
 ## Testing
 
 Run backend tests:
+
 ```bash
 cd backend
 go test ./internal/service/...
 ```
 
 Key test coverage:
+
 - Task auto-cancellation on expired deadlines
 - Claim limit enforcement
 - Escrow locking/releasing
@@ -194,6 +216,7 @@ Key test coverage:
 ## Production Considerations
 
 ### Security
+
 - [ ] Add rate limiting per user (currently global)
 - [ ] Implement proper CORS configuration
 - [ ] Add request validation middleware
@@ -202,6 +225,7 @@ Key test coverage:
 - [ ] Implement image upload with validation
 
 ### Scalability
+
 - [ ] Add database connection pooling
 - [ ] Implement Redis caching for frequently accessed data
 - [ ] Add message queue for background jobs
@@ -209,17 +233,20 @@ Key test coverage:
 - [ ] Database read replicas
 
 ### Monitoring
+
 - [ ] Add structured logging
 - [ ] Metrics collection (Prometheus)
 - [ ] Error tracking (Sentry)
 - [ ] Health check endpoints
 
 ### Payment Integration
+
 - [ ] Integrate real payment processor (Stripe, etc.)
 - [ ] Implement actual escrow service
 - [ ] Add payment webhooks
 
 ### Image Storage
+
 - [ ] Implement image upload to S3/Cloud Storage
 - [ ] Add image validation and processing
 - [ ] CDN for image delivery

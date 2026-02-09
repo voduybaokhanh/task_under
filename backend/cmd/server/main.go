@@ -117,22 +117,24 @@ func main() {
 	api.POST("/tasks", taskHandler.CreateTask)
 	api.GET("/tasks", taskHandler.GetOpenTasks)
 	api.GET("/tasks/my", taskHandler.GetUserTasks)
-	api.GET("/tasks/:id", taskHandler.GetTask)
 
 	// Claim routes
-	api.POST("/tasks/:task_id/claims", claimHandler.ClaimTask)
-	api.GET("/tasks/:task_id/claims", claimHandler.GetClaimsByTask)
+	api.POST("/tasks/:tid/claims", claimHandler.ClaimTask)
+	api.GET("/tasks/:tid/claims", claimHandler.GetClaimsByTask)
 	api.GET("/claims/:id", claimHandler.GetClaim)
 	api.POST("/claims/:id/submit", claimHandler.SubmitCompletion)
 	api.POST("/claims/:id/approve", claimHandler.ApproveClaim)
 	api.POST("/claims/:id/reject", claimHandler.RejectClaim)
 
 	// Chat routes
-	api.GET("/tasks/:task_id/chats", chatHandler.GetChats)
-	api.POST("/tasks/:task_id/chats", chatHandler.GetOrCreateChat)
+	api.GET("/tasks/:tid/chats", chatHandler.GetChats)
+	api.POST("/tasks/:tid/chats", chatHandler.GetOrCreateChat)
 	api.DELETE("/chats/:id", chatHandler.DeleteChat)
 	api.POST("/chats/:id/messages", chatHandler.SendMessage)
 	api.GET("/chats/:id/messages", chatHandler.GetMessages)
+
+	// Task routes (continued)
+	api.GET("/task/:id", taskHandler.GetTask)
 
 	// Server
 	port := os.Getenv("PORT")
