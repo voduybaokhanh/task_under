@@ -77,6 +77,12 @@ func (h *Hub) Run() {
 	}
 }
 
+// NotifyUser implements service.Notifier so services can emit real-time
+// events without importing this package.
+func (h *Hub) NotifyUser(userID uuid.UUID, eventType string, payload any) {
+	h.BroadcastToUser(userID, Message{Type: eventType, Payload: payload})
+}
+
 func (h *Hub) BroadcastToUser(userID uuid.UUID, message Message) {
 	h.send([]uuid.UUID{userID}, message)
 }

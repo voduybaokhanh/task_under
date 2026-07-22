@@ -51,18 +51,18 @@ func main() {
 	chatRepo := repository.NewChatRepository(db)
 	escrowRepo := repository.NewEscrowRepository(db)
 
-	// Services
-	userSvc := service.NewUserService(userRepo)
-	escrowSvc := service.NewEscrowService(escrowRepo, taskRepo)
-	taskSvc := service.NewTaskService(taskRepo, claimRepo, escrowSvc)
-	chatSvc := service.NewChatService(chatRepo)
-	claimSvc := service.NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo)
-
 	// WebSocket Hub. With Redis it fans out over Pub/Sub so several backend
 	// instances can serve the same user; without it, in-memory single instance.
 	wsHub := websocket.NewHub()
 	wsHub.UseRedis(context.Background(), redisClient)
 	go wsHub.Run()
+
+	// Services
+	userSvc := service.NewUserService(userRepo)
+	escrowSvc := service.NewEscrowService(escrowRepo, taskRepo)
+	taskSvc := service.NewTaskService(taskRepo, claimRepo, escrowSvc)
+	chatSvc := service.NewChatService(chatRepo, wsHub)
+	claimSvc := service.NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo)
 
 	// Background job for auto-cancelling expired tasks
 	go func() {

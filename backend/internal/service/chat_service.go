@@ -23,10 +23,14 @@ type ChatService interface {
 
 type chatService struct {
 	chatRepo repository.ChatRepository
+	notifier Notifier
 }
 
-func NewChatService(chatRepo repository.ChatRepository) ChatService {
-	return &chatService{chatRepo: chatRepo}
+func NewChatService(chatRepo repository.ChatRepository, notifier Notifier) ChatService {
+	if notifier == nil {
+		notifier = NoopNotifier{}
+	}
+	return &chatService{chatRepo: chatRepo, notifier: notifier}
 }
 
 func (s *chatService) GetOrCreateChat(ctx context.Context, taskID, userID, otherUserID uuid.UUID) (*domain.Chat, error) {
@@ -71,6 +75,12 @@ func (s *chatService) SendMessage(ctx context.Context, chatID, senderID uuid.UUI
 	if err != nil {
 		return nil, err
 	}
+
+	recipient := chat.OtherParticipantID
+	if recipient == senderID {
+		recipient = chat.ParticipantID
+	}
+	s.notifier.NotifyUser(recipient, "chat_message", message)
 
 	return message, nil
 }
