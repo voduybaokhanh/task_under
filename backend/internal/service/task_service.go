@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/task-underground/backend/internal/domain"
+	"github.com/task-underground/backend/internal/metrics"
 	"github.com/task-underground/backend/internal/repository"
 )
 
@@ -102,6 +103,7 @@ func (s *taskService) CreateTask(ctx context.Context, ownerID uuid.UUID, req Cre
 		return nil, err
 	}
 
+	metrics.TasksCreatedTotal.Inc()
 	return task, nil
 }
 

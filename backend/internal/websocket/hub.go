@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/task-underground/backend/internal/metrics"
 )
 
 type Hub struct {
@@ -46,6 +47,7 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			h.clients[client.ID] = client
 			h.mu.Unlock()
+			metrics.WSConnectionsActive.Inc()
 			log.Printf("Client connected: %s (user: %s)", client.ID, client.UserID)
 
 		case client := <-h.unregister:
@@ -53,6 +55,7 @@ func (h *Hub) Run() {
 			if _, ok := h.clients[client.ID]; ok {
 				delete(h.clients, client.ID)
 				close(client.Send)
+				metrics.WSConnectionsActive.Dec()
 			}
 			h.mu.Unlock()
 			log.Printf("Client disconnected: %s", client.ID)

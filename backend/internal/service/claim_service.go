@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/task-underground/backend/internal/domain"
+	"github.com/task-underground/backend/internal/metrics"
 	"github.com/task-underground/backend/internal/repository"
 )
 
@@ -210,6 +211,7 @@ func (s *claimService) ApproveClaim(ctx context.Context, claimID, ownerID uuid.U
 	if err != nil {
 		return err
 	}
+	metrics.TasksCompletedTotal.Inc()
 
 	return nil
 }

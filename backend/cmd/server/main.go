@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/task-underground/backend/internal/cache"
 	"github.com/task-underground/backend/internal/handler"
 	"github.com/task-underground/backend/internal/middleware"
@@ -90,10 +91,16 @@ func main() {
 		c.Next()
 	})
 
+	// Prometheus request metrics
+	r.Use(middleware.Metrics())
+
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	// Prometheus scrape endpoint
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// WebSocket
 	wsHandler := websocket.NewWSHandler(wsHub, userSvc)
