@@ -222,6 +222,11 @@ Events pushed to the client: `chat_message`, `claim_created`, `completion_submit
 `claim_approved`, `claim_rejected`. The same events are sent as Expo push
 notifications when the user has registered a push token.
 
+### Payments
+
+- `GET /api/v1/tasks/:tid/payment-intent` - Client secret for the task's escrow hold (owner only; 503 without Stripe)
+- `POST /webhooks/stripe` - Stripe events, verified by signature (no device auth)
+
 ### Uploads
 
 - `POST /api/v1/upload/presign` - Returns a presigned S3 PUT URL (15 min) plus the eventual public URL. Images only (jpeg/png/webp); returns 503 when `AWS_BUCKET_NAME` is unset
@@ -267,6 +272,10 @@ Key test coverage:
   only ever stores ciphertext
 - Presigned uploads against a real S3 API (MinIO): upload succeeds, the object
   is publicly readable, keys never collide, and expired URLs are refused
+- Stripe escrow: authorise without capturing, capture on approval, cancel an
+  uncaptured hold vs refund a captured one, declined cards, cents conversion,
+  and that only the owner can fetch a client secret
+- Stripe webhooks: real HMAC signatures, forged and stale signatures rejected
 
 ## Production Considerations
 
@@ -301,9 +310,10 @@ Key test coverage:
 
 ### Payment Integration
 
-- [ ] Integrate real payment processor (Stripe, etc.)
-- [ ] Implement actual escrow service
-- [ ] Add payment webhooks
+- [x] Integrate real payment processor (Stripe PaymentIntents, manual capture)
+- [x] Implement actual escrow service (authorise → capture / refund)
+- [x] Add payment webhooks (signature-verified)
+- [ ] Stripe Connect payouts to claimers (money currently lands in the platform account)
 
 ### Image Storage
 
@@ -334,6 +344,13 @@ Key test coverage:
 - Hub fans out over Redis Pub/Sub (`ws:fanout`), so any instance can deliver to a user connected to any other; falls back to in-memory when Redis is absent
 - Fixed a latent data race: the broadcast paths mutated the client map under a read lock
 - The hub previously had no callers at all — services now emit events through a `Notifier` interface
+
+**Stripe payments**
+- Escrow is real when `STRIPE_SECRET_KEY` is set: locking a task authorises the owner's card with `capture_method: manual`, approval captures it, and cancellation refunds a captured payment or cancels an uncaptured hold
+- Falls back to the simulated escrow without a key, so local development needs no Stripe account
+- `POST /webhooks/stripe` verifies the signature (the endpoint is public, so that signature is the only gate) and syncs escrow status from `payment_intent.*` events
+- Amounts convert to minor units with rounding, so 25.50 is exactly 2550 cents
+- Mobile presents a Stripe PaymentSheet after a task is created, when built with `EXPO_PUBLIC_STRIPE_KEY`
 
 **Image upload**
 - `POST /api/v1/upload/presign` hands out a 15-minute presigned S3 PUT URL; the file goes straight from the device to the bucket, so AWS credentials never leave the backend and no image bytes pass through it
@@ -401,10 +418,19 @@ Key test coverage:
 
 ## Known Limitations
 
-1. **Escrow**: Currently simulated, not real payment processing
+1. **Escrow**: Stripe-backed when keys are configured, otherwise simulated. The
+   mobile payment sheet is written but unverified — it needs a real publishable
+   key to exercise
 2. **Image Upload**: Requires an S3 bucket; no server-side size limit or re-encoding yet
 3. **Arbitration**: Owner-only, no third-party arbitration yet
-4. **Image upload**
+4. **Stripe payments**
+- Escrow is real when `STRIPE_SECRET_KEY` is set: locking a task authorises the owner's card with `capture_method: manual`, approval captures it, and cancellation refunds a captured payment or cancels an uncaptured hold
+- Falls back to the simulated escrow without a key, so local development needs no Stripe account
+- `POST /webhooks/stripe` verifies the signature (the endpoint is public, so that signature is the only gate) and syncs escrow status from `payment_intent.*` events
+- Amounts convert to minor units with rounding, so 25.50 is exactly 2550 cents
+- Mobile presents a Stripe PaymentSheet after a task is created, when built with `EXPO_PUBLIC_STRIPE_KEY`
+
+**Image upload**
 - `POST /api/v1/upload/presign` hands out a 15-minute presigned S3 PUT URL; the file goes straight from the device to the bucket, so AWS credentials never leave the backend and no image bytes pass through it
 - Object keys are generated server-side (UUID under `task-images/`), so one client cannot overwrite another's image
 - Works with any S3-compatible service via `AWS_ENDPOINT_URL` — the tests run against MinIO, in CI too

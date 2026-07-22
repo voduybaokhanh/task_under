@@ -29,6 +29,8 @@ type EscrowTransaction struct {
 	Amount          float64                 `json:"amount"`
 	TransactionType EscrowTransactionType   `json:"transaction_type"`
 	Status          EscrowTransactionStatus `json:"status"`
-	CreatedAt       time.Time               `json:"created_at"`
-	CompletedAt     *time.Time              `json:"completed_at,omitempty"`
+	// StripePaymentIntentID is empty when escrow is simulated (no Stripe key).
+	StripePaymentIntentID string     `json:"stripe_payment_intent_id,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	CompletedAt           *time.Time `json:"completed_at,omitempty"`
 }

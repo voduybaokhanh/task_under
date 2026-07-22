@@ -16,6 +16,7 @@ import (
 	"github.com/task-underground/backend/internal/cache"
 	"github.com/task-underground/backend/internal/handler"
 	"github.com/task-underground/backend/internal/middleware"
+	"github.com/task-underground/backend/internal/payment"
 	"github.com/task-underground/backend/internal/repository"
 	"github.com/task-underground/backend/internal/service"
 	"github.com/task-underground/backend/internal/storage"
@@ -62,7 +63,17 @@ func main() {
 	// Expo push.
 	notifier := service.MultiNotifier{wsHub, service.NewPushNotifier(userRepo)}
 	userSvc := service.NewUserService(userRepo)
-	escrowSvc := service.NewEscrowService(escrowRepo, taskRepo)
+	// Real card payments when a Stripe key is present; simulated escrow
+	// otherwise, so the app still runs locally without credentials.
+	var escrowSvc service.EscrowService
+	if stripeClient := payment.NewStripeClient(); stripeClient != nil {
+		escrowSvc = service.NewStripeEscrowService(escrowRepo, taskRepo, stripeClient, os.Getenv("STRIPE_CURRENCY"))
+	} else {
+		escrowSvc = service.NewEscrowService(escrowRepo, taskRepo)
+	}
+	// Only the Stripe implementation can hand out a client secret; nil makes
+	// the endpoint answer 503.
+	payments, _ := escrowSvc.(service.PaymentIntentProvider)
 	taskSvc := service.NewTaskService(taskRepo, claimRepo, escrowSvc)
 	chatSvc := service.NewChatService(chatRepo, notifier)
 	claimSvc := service.NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo, notifier)
@@ -103,6 +114,10 @@ func main() {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	// Stripe webhooks: signature-verified, so they sit outside the device auth.
+	stripeWebhook := handler.NewStripeWebhookHandler(escrowRepo)
+	r.POST("/webhooks/stripe", stripeWebhook.Handle)
 
 	// Prometheus scrape endpoint
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
@@ -148,6 +163,9 @@ func main() {
 
 	// Task routes (continued)
 	api.GET("/task/:id", taskHandler.GetTask)
+
+	// Payment routes
+	api.GET("/tasks/:tid/payment-intent", handler.NewPaymentHandler(payments).GetClientSecret)
 
 	// Upload routes
 	api.POST("/upload/presign", uploadHandler.Presign)

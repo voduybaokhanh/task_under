@@ -63,6 +63,11 @@ class ApiService {
     return response.data.public_key;
   }
 
+  async getPaymentIntent(taskId: string): Promise<{ client_secret: string }> {
+    const response = await this.client.get(`/api/v1/tasks/${taskId}/payment-intent`);
+    return response.data;
+  }
+
   // Upload endpoints
   async presignUpload(
     filename: string,

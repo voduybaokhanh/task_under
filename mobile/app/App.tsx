@@ -14,6 +14,8 @@ import ProfileScreen from './screens/ProfileScreen';
 import { registerForPushNotifications } from '../services/notifications';
 import { publishPublicKey } from '../services/keys';
 import { connectRealtime, disconnectRealtime } from '../services/realtime';
+import { cardPaymentsEnabled, stripePublishableKey } from '../services/payment';
+import { StripeProvider } from '@stripe/stripe-react-native';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -63,7 +65,7 @@ export default function App() {
     return disconnectRealtime;
   }, []);
 
-  return (
+  const app = (
     <NavigationContainer>
       <StatusBar style="light" />
       <Tab.Navigator
@@ -93,5 +95,13 @@ export default function App() {
         <Tab.Screen name="ProfileTab" component={ProfileTab} options={{ title: 'Profile' }} />
       </Tab.Navigator>
     </NavigationContainer>
+  );
+
+  // Without a publishable key the Stripe provider has nothing to do, and the
+  // app runs on simulated escrow.
+  return cardPaymentsEnabled ? (
+    <StripeProvider publishableKey={stripePublishableKey}>{app}</StripeProvider>
+  ) : (
+    app
   );
 }
