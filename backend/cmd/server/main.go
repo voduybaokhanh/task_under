@@ -12,12 +12,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
+	"github.com/task-underground/backend/internal/cache"
 	"github.com/task-underground/backend/internal/handler"
 	"github.com/task-underground/backend/internal/middleware"
 	"github.com/task-underground/backend/internal/repository"
 	"github.com/task-underground/backend/internal/service"
 	"github.com/task-underground/backend/internal/websocket"
-	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -35,6 +35,12 @@ func main() {
 
 	if err := db.Ping(); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
+	}
+
+	// Redis (optional). nil when REDIS_URL is unset/unreachable → single-instance mode.
+	redisClient := cache.NewClient(os.Getenv("REDIS_URL"))
+	if redisClient != nil {
+		defer redisClient.Close()
 	}
 
 	// Repositories
@@ -84,17 +90,6 @@ func main() {
 		c.Next()
 	})
 
-	// Rate limiting
-	limiter := rate.NewLimiter(rate.Every(time.Second), 10)
-	r.Use(func(c *gin.Context) {
-		if !limiter.Allow() {
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
-			c.Abort()
-			return
-		}
-		c.Next()
-	})
-
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -107,6 +102,8 @@ func main() {
 	// API routes
 	api := r.Group("/api/v1")
 	api.Use(middleware.AuthMiddleware(userSvc))
+	// Per-device sliding-window rate limit: 60 requests / minute (no-op without Redis).
+	api.Use(middleware.PerUserRateLimit(redisClient, 60, time.Minute))
 
 	// Handlers
 	taskHandler := handler.NewTaskHandler(taskSvc)
