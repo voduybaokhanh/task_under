@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,12 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Alert,
+  Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUserStore } from '../../store/useUserStore';
 import { useTaskStore } from '../../store/useTaskStore';
+import { apiService } from '../../services/api';
 
 function StatCard({ label, value, color = '#fff' }: { label: string; value: string; color?: string }) {
   return (
@@ -39,10 +41,24 @@ export default function ProfileScreen() {
   const { me, loading, fetchMe } = useUserStore();
   const { myTasks, fetchMyTasks } = useTaskStore();
 
+  const [payouts, setPayouts] = useState<{ payouts_enabled: boolean; configured: boolean } | null>(
+    null
+  );
+
   useEffect(() => {
     fetchMe();
     fetchMyTasks();
+    apiService.getPayoutStatus().then(setPayouts).catch(() => setPayouts(null));
   }, []);
+
+  const handleSetUpPayouts = async () => {
+    try {
+      const url = await apiService.startPayoutOnboarding();
+      await Linking.openURL(url);
+    } catch (error: any) {
+      Alert.alert('Payout setup failed', error.message);
+    }
+  };
 
   if (loading && !me) {
     return (
@@ -71,6 +87,24 @@ export default function ProfileScreen() {
         <ReputationBar score={me?.reputation ?? 0} />
       </View>
 
+      {payouts?.configured ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Payouts</Text>
+          {payouts.payouts_enabled ? (
+            <Text style={styles.payoutReady}>✓ Ready to receive earnings</Text>
+          ) : (
+            <>
+              <Text style={styles.payoutHint}>
+                Set up a payout account to receive the rewards you earn.
+              </Text>
+              <TouchableOpacity style={styles.payoutButton} onPress={handleSetUpPayouts}>
+                <Text style={styles.payoutButtonText}>Set up payouts</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      ) : null}
+
       <View style={styles.statsGrid}>
         <StatCard label="Total Earned" value={`$${(me?.total_earned ?? 0).toFixed(2)}`} color="#4CAF50" />
         <StatCard label="Total Spent" value={`$${(me?.total_spent ?? 0).toFixed(2)}`} color="#FF9800" />
@@ -96,6 +130,15 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  payoutReady: { color: '#4CAF50', fontSize: 14, fontWeight: '600' },
+  payoutHint: { color: '#888', fontSize: 13, marginBottom: 12, lineHeight: 18 },
+  payoutButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  payoutButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   container: { flex: 1, backgroundColor: '#000' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
   header: {

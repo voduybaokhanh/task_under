@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 
 	"github.com/google/uuid"
@@ -24,6 +25,10 @@ type StripeAPI interface {
 	CancelPaymentIntent(ctx context.Context, id string, params *stripe.PaymentIntentCancelParams) (*stripe.PaymentIntent, error)
 	CreateRefund(ctx context.Context, params *stripe.RefundParams) (*stripe.Refund, error)
 	GetPaymentIntent(ctx context.Context, id string) (*stripe.PaymentIntent, error)
+	CreateAccount(ctx context.Context, params *stripe.AccountParams) (*stripe.Account, error)
+	GetAccount(ctx context.Context, id string) (*stripe.Account, error)
+	CreateAccountLink(ctx context.Context, params *stripe.AccountLinkParams) (*stripe.AccountLink, error)
+	CreateTransfer(ctx context.Context, params *stripe.TransferParams) (*stripe.Transfer, error)
 }
 
 // PaymentIntentProvider exposes the client secret a mobile app needs to attach
@@ -38,6 +43,7 @@ type PaymentIntentProvider interface {
 type stripeEscrowService struct {
 	escrowRepo repository.EscrowRepository
 	taskRepo   repository.TaskRepository
+	userRepo   repository.UserRepository
 	stripe     StripeAPI
 	currency   string
 }
@@ -45,6 +51,7 @@ type stripeEscrowService struct {
 func NewStripeEscrowService(
 	escrowRepo repository.EscrowRepository,
 	taskRepo repository.TaskRepository,
+	userRepo repository.UserRepository,
 	client StripeAPI,
 	currency string,
 ) EscrowService {
@@ -54,6 +61,7 @@ func NewStripeEscrowService(
 	return &stripeEscrowService{
 		escrowRepo: escrowRepo,
 		taskRepo:   taskRepo,
+		userRepo:   userRepo,
 		stripe:     client,
 		currency:   currency,
 	}
@@ -136,7 +144,7 @@ func (s *stripeEscrowService) ReleaseEscrow(ctx context.Context, taskID, userID 
 		return err
 	}
 
-	_, err = s.stripe.CapturePaymentIntent(ctx, lock.StripePaymentIntentID, &stripe.PaymentIntentCaptureParams{
+	captured, err := s.stripe.CapturePaymentIntent(ctx, lock.StripePaymentIntentID, &stripe.PaymentIntentCaptureParams{
 		AmountToCapture: stripe.Int64(toMinorUnits(amount)),
 	})
 	if err != nil {
@@ -147,7 +155,72 @@ func (s *stripeEscrowService) ReleaseEscrow(ctx context.Context, taskID, userID 
 	if err := s.escrowRepo.UpdateTransactionStatus(ctx, lock.ID, domain.EscrowStatusCompleted); err != nil {
 		return err
 	}
+	if err := s.escrowRepo.UpdateTransactionStatus(ctx, tx.ID, domain.EscrowStatusCompleted); err != nil {
+		return err
+	}
+
+	return s.payout(ctx, taskID, userID, amount, captured)
+}
+
+// payout transfers the captured money to the claimer's own Stripe account.
+// A claimer who has not onboarded yet leaves a pending payout row: the task is
+// still approved and the money is still captured, so the transfer can be
+// retried once they connect an account. Failing the approval here would punish
+// the claimer for paperwork.
+func (s *stripeEscrowService) payout(ctx context.Context, taskID, claimerID uuid.UUID, amount float64, captured *stripe.PaymentIntent) error {
+	tx := &domain.EscrowTransaction{
+		ID:                    uuid.New(),
+		TaskID:                taskID,
+		UserID:                claimerID,
+		Amount:                amount,
+		TransactionType:       domain.EscrowTypePayout,
+		Status:                domain.EscrowStatusPending,
+		StripePaymentIntentID: captured.ID,
+	}
+	if err := s.escrowRepo.CreateTransaction(ctx, tx); err != nil {
+		return err
+	}
+
+	claimer, err := s.userRepo.GetByID(ctx, claimerID)
+	if err != nil {
+		return err
+	}
+	if claimer.StripeAccountID == "" {
+		log.Printf("Claimer %s has no Stripe account; payout %s left pending", claimerID, tx.ID)
+		return nil
+	}
+
+	params := &stripe.TransferParams{
+		Amount:      stripe.Int64(toMinorUnits(amount)),
+		Currency:    stripe.String(s.currency),
+		Destination: stripe.String(claimer.StripeAccountID),
+	}
+	// Tying the transfer to the originating charge keeps the platform balance
+	// out of it and makes the money trail auditable in Stripe.
+	if captured.LatestCharge != nil {
+		params.SourceTransaction = stripe.String(captured.LatestCharge.ID)
+	}
+
+	if _, err := s.stripe.CreateTransfer(ctx, params); err != nil {
+		_ = s.escrowRepo.UpdateTransactionStatus(ctx, tx.ID, domain.EscrowStatusFailed)
+		return fmt.Errorf("transfer to claimer: %w", err)
+	}
+
 	return s.escrowRepo.UpdateTransactionStatus(ctx, tx.ID, domain.EscrowStatusCompleted)
+}
+
+// PendingPayout returns the unpaid payout for a task, if any.
+func (s *stripeEscrowService) PendingPayout(ctx context.Context, taskID uuid.UUID) (*domain.EscrowTransaction, error) {
+	txs, err := s.escrowRepo.GetTransactionsByTaskID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	for _, tx := range txs {
+		if tx.TransactionType == domain.EscrowTypePayout && tx.Status == domain.EscrowStatusPending {
+			return tx, nil
+		}
+	}
+	return nil, nil
 }
 
 // RefundEscrow returns the money to the owner. An uncaptured hold is cancelled

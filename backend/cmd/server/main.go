@@ -66,8 +66,10 @@ func main() {
 	// Real card payments when a Stripe key is present; simulated escrow
 	// otherwise, so the app still runs locally without credentials.
 	var escrowSvc service.EscrowService
+	var connectSvc service.ConnectService
 	if stripeClient := payment.NewStripeClient(); stripeClient != nil {
-		escrowSvc = service.NewStripeEscrowService(escrowRepo, taskRepo, stripeClient, os.Getenv("STRIPE_CURRENCY"))
+		escrowSvc = service.NewStripeEscrowService(escrowRepo, taskRepo, userRepo, stripeClient, os.Getenv("STRIPE_CURRENCY"))
+		connectSvc = service.NewConnectService(userRepo, stripeClient)
 	} else {
 		escrowSvc = service.NewEscrowService(escrowRepo, taskRepo)
 	}
@@ -163,6 +165,11 @@ func main() {
 
 	// Task routes (continued)
 	api.GET("/task/:id", taskHandler.GetTask)
+
+	// Payout routes (Stripe Connect)
+	connectHandler := handler.NewConnectHandler(connectSvc)
+	api.POST("/users/me/payouts/onboard", connectHandler.StartOnboarding)
+	api.GET("/users/me/payouts/status", connectHandler.PayoutStatus)
 
 	// Payment routes
 	api.GET("/tasks/:tid/payment-intent", handler.NewPaymentHandler(payments).GetClientSecret)

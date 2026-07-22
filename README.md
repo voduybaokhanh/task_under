@@ -225,6 +225,8 @@ notifications when the user has registered a push token.
 ### Payments
 
 - `GET /api/v1/tasks/:tid/payment-intent` - Client secret for the task's escrow hold (owner only; 503 without Stripe)
+- `POST /api/v1/users/me/payouts/onboard` - Stripe Connect onboarding URL for receiving earnings
+- `GET /api/v1/users/me/payouts/status` - Whether Stripe will pay this user yet
 - `POST /webhooks/stripe` - Stripe events, verified by signature (no device auth)
 
 ### Uploads
@@ -276,6 +278,9 @@ Key test coverage:
   uncaptured hold vs refund a captured one, declined cards, cents conversion,
   and that only the owner can fetch a client secret
 - Stripe webhooks: real HMAC signatures, forged and stale signatures rejected
+- Connect payouts: the transfer goes to the claimer's account tied to the
+  originating charge, a claimer without an account leaves a retryable pending
+  payout instead of blocking approval, and a failed transfer is recorded
 
 ## Production Considerations
 
@@ -313,7 +318,8 @@ Key test coverage:
 - [x] Integrate real payment processor (Stripe PaymentIntents, manual capture)
 - [x] Implement actual escrow service (authorise → capture / refund)
 - [x] Add payment webhooks (signature-verified)
-- [ ] Stripe Connect payouts to claimers (money currently lands in the platform account)
+- [x] Stripe Connect payouts to claimers (Express accounts, transfer on approval)
+- [ ] Retry job for payouts left pending while a claimer onboards
 
 ### Image Storage
 
@@ -351,6 +357,12 @@ Key test coverage:
 - `POST /webhooks/stripe` verifies the signature (the endpoint is public, so that signature is the only gate) and syncs escrow status from `payment_intent.*` events
 - Amounts convert to minor units with rounding, so 25.50 is exactly 2550 cents
 - Mobile presents a Stripe PaymentSheet after a task is created, when built with `EXPO_PUBLIC_STRIPE_KEY`
+
+**Stripe Connect payouts**
+- Claimers onboard onto a Stripe Express account, so approved rewards are transferred to them instead of resting in the platform balance
+- Each transfer is tied to the charge it came from (`source_transaction`), keeping the money trail auditable
+- A claimer who has not onboarded still gets their task approved and the money captured; the payout row stays pending and can be retried once they connect an account
+- Profile screen shows payout status and links into Stripe's hosted onboarding
 
 **Image upload**
 - `POST /api/v1/upload/presign` hands out a 15-minute presigned S3 PUT URL; the file goes straight from the device to the bucket, so AWS credentials never leave the backend and no image bytes pass through it
@@ -420,7 +432,8 @@ Key test coverage:
 
 1. **Escrow**: Stripe-backed when keys are configured, otherwise simulated. The
    mobile payment sheet is written but unverified — it needs a real publishable
-   key to exercise
+   key to exercise. Payouts left pending (claimer not yet onboarded) are not
+   retried automatically yet
 2. **Image Upload**: Requires an S3 bucket; no server-side size limit or re-encoding yet
 3. **Arbitration**: Owner-only, no third-party arbitration yet
 4. **Stripe payments**
@@ -429,6 +442,12 @@ Key test coverage:
 - `POST /webhooks/stripe` verifies the signature (the endpoint is public, so that signature is the only gate) and syncs escrow status from `payment_intent.*` events
 - Amounts convert to minor units with rounding, so 25.50 is exactly 2550 cents
 - Mobile presents a Stripe PaymentSheet after a task is created, when built with `EXPO_PUBLIC_STRIPE_KEY`
+
+**Stripe Connect payouts**
+- Claimers onboard onto a Stripe Express account, so approved rewards are transferred to them instead of resting in the platform balance
+- Each transfer is tied to the charge it came from (`source_transaction`), keeping the money trail auditable
+- A claimer who has not onboarded still gets their task approved and the money captured; the payout row stays pending and can be retried once they connect an account
+- Profile screen shows payout status and links into Stripe's hosted onboarding
 
 **Image upload**
 - `POST /api/v1/upload/presign` hands out a 15-minute presigned S3 PUT URL; the file goes straight from the device to the bucket, so AWS credentials never leave the backend and no image bytes pass through it

@@ -14,6 +14,7 @@ Thứ tự ưu tiên: impact cao → thấp, phụ thuộc kỹ thuật làm tr�
 - [x] E2EE chat — X25519 + nacl.box, khoá bí mật ở SecureStore, server chỉ giữ ciphertext
 - [x] Image upload S3 — presigned PUT, test thật bằng MinIO (không cần AWS creds)
 - [x] Stripe payment — PaymentIntent manual capture + webhook; test bằng fake API + stub server (mobile PaymentSheet chưa verify được vì cần publishable key thật)
+- [x] Stripe Connect payout — Express account cho claimer, transfer khi approve (ngoài plan gốc)
 
 ---
 

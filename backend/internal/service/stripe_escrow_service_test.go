@@ -15,11 +15,16 @@ import (
 
 // fakeStripe records what the service asked Stripe to do.
 type fakeStripe struct {
-	created   []*stripe.PaymentIntentParams
-	captured  map[string]int64
-	cancelled []string
-	refunded  map[string]int64
-	failWith  error
+	created     []*stripe.PaymentIntentParams
+	captured    map[string]int64
+	cancelled   []string
+	refunded    map[string]int64
+	transfers   []*stripe.TransferParams
+	accounts    []*stripe.AccountParams
+	links       []*stripe.AccountLinkParams
+	payoutsOn   bool
+	failWith    error
+	transferErr error
 }
 
 func newFakeStripe() *fakeStripe {
@@ -39,7 +44,7 @@ func (f *fakeStripe) CapturePaymentIntent(_ context.Context, id string, params *
 		return nil, f.failWith
 	}
 	f.captured[id] = *params.AmountToCapture
-	return &stripe.PaymentIntent{ID: id}, nil
+	return &stripe.PaymentIntent{ID: id, LatestCharge: &stripe.Charge{ID: "ch_test_1"}}, nil
 }
 
 func (f *fakeStripe) CancelPaymentIntent(_ context.Context, id string, _ *stripe.PaymentIntentCancelParams) (*stripe.PaymentIntent, error) {
@@ -63,6 +68,37 @@ func (f *fakeStripe) GetPaymentIntent(_ context.Context, id string) (*stripe.Pay
 		return nil, f.failWith
 	}
 	return &stripe.PaymentIntent{ID: id, ClientSecret: id + "_secret_abc"}, nil
+}
+
+func (f *fakeStripe) CreateTransfer(_ context.Context, params *stripe.TransferParams) (*stripe.Transfer, error) {
+	if f.transferErr != nil {
+		return nil, f.transferErr
+	}
+	f.transfers = append(f.transfers, params)
+	return &stripe.Transfer{ID: "tr_test_1"}, nil
+}
+
+func (f *fakeStripe) CreateAccount(_ context.Context, params *stripe.AccountParams) (*stripe.Account, error) {
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
+	f.accounts = append(f.accounts, params)
+	return &stripe.Account{ID: "acct_test_1"}, nil
+}
+
+func (f *fakeStripe) GetAccount(_ context.Context, id string) (*stripe.Account, error) {
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
+	return &stripe.Account{ID: id, PayoutsEnabled: f.payoutsOn}, nil
+}
+
+func (f *fakeStripe) CreateAccountLink(_ context.Context, params *stripe.AccountLinkParams) (*stripe.AccountLink, error) {
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
+	f.links = append(f.links, params)
+	return &stripe.AccountLink{URL: "https://connect.stripe.com/setup/e/acct_test_1"}, nil
 }
 
 // escrowRepoStub is an in-memory EscrowRepository.
@@ -125,6 +161,13 @@ func (r *escrowRepoStub) find(txType domain.EscrowTransactionType) *domain.Escro
 }
 
 func stripeFixture(t *testing.T) (*stripeEscrowService, *escrowRepoStub, *fakeStripe, *domain.Task) {
+	svc, repo, client, task, _ := stripeFixtureWithUsers(t)
+	return svc, repo, client, task
+}
+
+// stripeFixtureWithUsers also exposes the user repo, so tests can decide
+// whether the claimer has onboarded onto Connect.
+func stripeFixtureWithUsers(t *testing.T) (*stripeEscrowService, *escrowRepoStub, *fakeStripe, *domain.Task, *mockUserRepo) {
 	t.Helper()
 
 	taskRepo := &mockTaskRepoForClaimSvc{tasks: make(map[uuid.UUID]*domain.Task)}
@@ -132,9 +175,10 @@ func stripeFixture(t *testing.T) (*stripeEscrowService, *escrowRepoStub, *fakeSt
 	taskRepo.tasks[task.ID] = task
 
 	escrowRepo := &escrowRepoStub{}
+	userRepo := &mockUserRepo{stripeAccount: "acct_claimer_1"}
 	client := newFakeStripe()
-	svc := NewStripeEscrowService(escrowRepo, taskRepo, client, "usd").(*stripeEscrowService)
-	return svc, escrowRepo, client, task
+	svc := NewStripeEscrowService(escrowRepo, taskRepo, userRepo, client, "usd").(*stripeEscrowService)
+	return svc, escrowRepo, client, task, userRepo
 }
 
 func TestLockEscrowAuthorisesWithoutTakingTheMoney(t *testing.T) {
@@ -237,4 +281,60 @@ func TestClientSecretGoesOnlyToTheOwner(t *testing.T) {
 
 	_, err = svc.ClientSecret(context.Background(), task.ID, uuid.New())
 	assert.ErrorIs(t, err, ErrUnauthorized, "a stranger must not be able to charge someone else's card")
+}
+
+// Approval must move the money on to the claimer's own Stripe account, not
+// leave it sitting in the platform balance.
+func TestReleasePaysOutToTheClaimersAccount(t *testing.T) {
+	svc, repo, client, task, _ := stripeFixtureWithUsers(t)
+	require.NoError(t, svc.LockEscrow(context.Background(), task.ID, task.OwnerID, task.RewardAmount))
+
+	claimerID := uuid.New()
+	require.NoError(t, svc.ReleaseEscrow(context.Background(), task.ID, claimerID, task.RewardAmount))
+
+	require.Len(t, client.transfers, 1)
+	transfer := client.transfers[0]
+	assert.Equal(t, int64(2550), *transfer.Amount)
+	assert.Equal(t, "acct_claimer_1", *transfer.Destination)
+	assert.Equal(t, "ch_test_1", *transfer.SourceTransaction,
+		"the transfer should be tied to the charge it came from")
+
+	payout := repo.find(domain.EscrowTypePayout)
+	require.NotNil(t, payout)
+	assert.Equal(t, domain.EscrowStatusCompleted, payout.Status)
+	assert.Equal(t, claimerID, payout.UserID)
+}
+
+// A claimer who has not onboarded yet must still get their task approved; the
+// payout waits for them rather than blocking the owner.
+func TestReleaseLeavesPayoutPendingWithoutAConnectAccount(t *testing.T) {
+	svc, repo, client, task, users := stripeFixtureWithUsers(t)
+	users.stripeAccount = ""
+	require.NoError(t, svc.LockEscrow(context.Background(), task.ID, task.OwnerID, task.RewardAmount))
+
+	require.NoError(t, svc.ReleaseEscrow(context.Background(), task.ID, uuid.New(), task.RewardAmount))
+
+	assert.Empty(t, client.transfers)
+	assert.Equal(t, int64(2550), client.captured["pi_test_123"], "the money is still captured")
+
+	payout := repo.find(domain.EscrowTypePayout)
+	require.NotNil(t, payout)
+	assert.Equal(t, domain.EscrowStatusPending, payout.Status)
+
+	pending, err := svc.PendingPayout(context.Background(), task.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, pending, "the unpaid payout must be findable for a retry")
+}
+
+func TestFailedTransferIsRecorded(t *testing.T) {
+	svc, repo, client, task, _ := stripeFixtureWithUsers(t)
+	require.NoError(t, svc.LockEscrow(context.Background(), task.ID, task.OwnerID, task.RewardAmount))
+	client.transferErr = errors.New("destination account restricted")
+
+	err := svc.ReleaseEscrow(context.Background(), task.ID, uuid.New(), task.RewardAmount)
+
+	require.Error(t, err)
+	assert.Equal(t, domain.EscrowStatusFailed, repo.find(domain.EscrowTypePayout).Status)
+	assert.Equal(t, domain.EscrowStatusCompleted, repo.find(domain.EscrowTypeRelease).Status,
+		"the capture succeeded even though the transfer did not")
 }

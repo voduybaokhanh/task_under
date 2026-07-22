@@ -8,8 +8,11 @@ import (
 	"os"
 
 	"github.com/stripe/stripe-go/v82"
+	"github.com/stripe/stripe-go/v82/account"
+	"github.com/stripe/stripe-go/v82/accountlink"
 	"github.com/stripe/stripe-go/v82/paymentintent"
 	"github.com/stripe/stripe-go/v82/refund"
+	"github.com/stripe/stripe-go/v82/transfer"
 )
 
 // StripeClient wraps the package-level Stripe SDK calls.
@@ -60,4 +63,23 @@ func (c *StripeClient) CreateRefund(ctx context.Context, params *stripe.RefundPa
 
 func (c *StripeClient) GetPaymentIntent(ctx context.Context, id string) (*stripe.PaymentIntent, error) {
 	return paymentintent.Get(id, &stripe.PaymentIntentParams{Params: stripe.Params{Context: ctx}})
+}
+
+func (c *StripeClient) CreateAccount(ctx context.Context, params *stripe.AccountParams) (*stripe.Account, error) {
+	params.Context = ctx
+	return account.New(params)
+}
+
+func (c *StripeClient) GetAccount(ctx context.Context, id string) (*stripe.Account, error) {
+	return account.GetByID(id, &stripe.AccountParams{Params: stripe.Params{Context: ctx}})
+}
+
+func (c *StripeClient) CreateAccountLink(ctx context.Context, params *stripe.AccountLinkParams) (*stripe.AccountLink, error) {
+	params.Context = ctx
+	return accountlink.New(params)
+}
+
+func (c *StripeClient) CreateTransfer(ctx context.Context, params *stripe.TransferParams) (*stripe.Transfer, error) {
+	params.Context = ctx
+	return transfer.New(params)
 }

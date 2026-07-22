@@ -63,6 +63,18 @@ class ApiService {
     return response.data.public_key;
   }
 
+  async getPayoutStatus(): Promise<{ payouts_enabled: boolean; configured: boolean }> {
+    const response = await this.client.get('/api/v1/users/me/payouts/status');
+    return response.data;
+  }
+
+  async startPayoutOnboarding(): Promise<string> {
+    const response = await this.client.post<{ onboarding_url: string }>(
+      '/api/v1/users/me/payouts/onboard'
+    );
+    return response.data.onboarding_url;
+  }
+
   async getPaymentIntent(taskId: string): Promise<{ client_secret: string }> {
     const response = await this.client.get(`/api/v1/tasks/${taskId}/payment-intent`);
     return response.data;

@@ -18,4 +18,7 @@ type User struct {
 	// PublicKey is the device's X25519 public key (base64) for E2E encrypted
 	// chat. Public by nature — other users need it to message this one.
 	PublicKey string `json:"public_key"`
+	// StripeAccountID is the user's Stripe Connect account, empty until they
+	// onboard. Without it they cannot be paid.
+	StripeAccountID string `json:"-"`
 }

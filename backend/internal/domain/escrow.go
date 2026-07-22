@@ -12,6 +12,9 @@ const (
 	EscrowTypeLock    EscrowTransactionType = "lock"
 	EscrowTypeRelease EscrowTransactionType = "release"
 	EscrowTypeRefund  EscrowTransactionType = "refund"
+	// EscrowTypePayout is the transfer of a captured payment to the claimer's
+	// own Stripe Connect account.
+	EscrowTypePayout EscrowTransactionType = "payout"
 )
 
 type EscrowTransactionStatus string

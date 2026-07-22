@@ -259,8 +259,9 @@ func TestClaimTaskLimitReached(t *testing.T) {
 }
 
 type mockUserRepo struct {
-	pushToken string
-	publicKey string
+	pushToken     string
+	publicKey     string
+	stripeAccount string
 }
 
 func (m *mockUserRepo) GetOrCreateByDeviceID(ctx context.Context, deviceID string) (*domain.User, error) {
@@ -268,7 +269,7 @@ func (m *mockUserRepo) GetOrCreateByDeviceID(ctx context.Context, deviceID strin
 }
 
 func (m *mockUserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
-	return &domain.User{ID: id}, nil
+	return &domain.User{ID: id, StripeAccountID: m.stripeAccount}, nil
 }
 
 func (m *mockUserRepo) UpdateReputation(ctx context.Context, id uuid.UUID, delta int) error {
@@ -290,5 +291,10 @@ func (m *mockUserRepo) UpdatePushToken(ctx context.Context, id uuid.UUID, token 
 
 func (m *mockUserRepo) UpdatePublicKey(ctx context.Context, id uuid.UUID, publicKey string) error {
 	m.publicKey = publicKey
+	return nil
+}
+
+func (m *mockUserRepo) UpdateStripeAccount(ctx context.Context, id uuid.UUID, accountID string) error {
+	m.stripeAccount = accountID
 	return nil
 }
