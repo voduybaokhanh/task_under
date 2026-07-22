@@ -94,7 +94,7 @@ This is an anonymous task marketplace where:
 - Go 1.22+
 - Node.js 18+
 - Docker & Docker Compose
-- PostgreSQL 15+ (or use Docker)
+- PostgreSQL 15–18 (or use Docker)
 - Redis (or use Docker)
 
 ### Backend Setup
@@ -169,6 +169,10 @@ This starts:
 - Backend on port 8080
 
 ## API Endpoints
+
+### Users
+
+- `GET /api/v1/users/me` - Get current user profile (reputation, earnings, spending)
 
 ### Tasks
 
@@ -250,6 +254,51 @@ Key test coverage:
 - [ ] Implement image upload to S3/Cloud Storage
 - [ ] Add image validation and processing
 - [ ] CDN for image delivery
+
+## Changelog
+
+### v2 — UI/UX Level Up & PostgreSQL 18 Compatibility
+
+#### Mobile
+
+**New screens & navigation**
+- **Profile screen** — anonymous avatar, reputation progress bar, stats grid (Total Earned, Total Spent, Tasks Created, Completed, Open)
+- Tab bar now has icons (Ionicons: list, briefcase, person) with green active tint and dark styling
+
+**Task List (Explore tab)**
+- Search bar with real-time keyword filtering across title and description
+- Filter chips: All / Open / Claimed / Completed
+- Task cards show colored status badge (green/orange/blue/red), reward, and time remaining ("9d left", "2h left")
+
+**Create Task**
+- Claim Deadline: preset chips — 1 day / 3 days / 7 days / 14 days
+- Completion Deadline: preset chips — 7 days / 14 days / 30 days / 60 days
+- Max Claimants: quick-select chips (1 / 2 / 3 / 5 / 10)
+- Deadline hint shows computed date below each selection
+
+**Chat**
+- Sender bubbles aligned right (green), receiver bubbles aligned left (dark gray)
+- Disabled send button when input is empty
+- Submit on keyboard return key
+
+**My Tasks**
+- Header summary: "X open · Y completed"
+- Status badges consistent with Explore tab
+
+#### Backend
+
+**New endpoint**
+- `GET /api/v1/users/me` — returns current user's profile (id, reputation, total\_earned, total\_spent)
+
+**PostgreSQL 18 compatibility fixes**
+- All UUID parameters across every repository query now use explicit `::uuid` cast and `.String()` serialization — required because `lib/pq`'s extended query protocol no longer infers UUID types automatically in PostgreSQL 18
+- `UpdateTransactionStatus`: split `$1` reuse in CASE WHEN into a separate `$2` parameter to avoid type-inference conflict
+- `CompletionText` / `CompletionImageURL` now scanned via `sql.NullString` to handle NULL values before submission
+
+**Repository refactor**
+- Extracted `scanTask`, `scanClaim`, `scanChat`, `scanUser` helpers to eliminate repetitive scan boilerplate
+
+---
 
 ## Known Limitations
 
