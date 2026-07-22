@@ -57,12 +57,14 @@ func main() {
 	wsHub.UseRedis(context.Background(), redisClient)
 	go wsHub.Run()
 
-	// Services
+	// Services. Events go to open apps over WebSocket and to closed ones via
+	// Expo push.
+	notifier := service.MultiNotifier{wsHub, service.NewPushNotifier(userRepo)}
 	userSvc := service.NewUserService(userRepo)
 	escrowSvc := service.NewEscrowService(escrowRepo, taskRepo)
 	taskSvc := service.NewTaskService(taskRepo, claimRepo, escrowSvc)
-	chatSvc := service.NewChatService(chatRepo, wsHub)
-	claimSvc := service.NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo)
+	chatSvc := service.NewChatService(chatRepo, notifier)
+	claimSvc := service.NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo, notifier)
 
 	// Background job for auto-cancelling expired tasks
 	go func() {
@@ -105,7 +107,7 @@ func main() {
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// WebSocket
-	wsHandler := websocket.NewWSHandler(wsHub, userSvc)
+	wsHandler := websocket.NewWSHandler(wsHub)
 	r.GET("/ws", middleware.AuthMiddleware(userSvc), wsHandler.HandleWebSocket)
 
 	// API routes
@@ -118,7 +120,7 @@ func main() {
 	taskHandler := handler.NewTaskHandler(taskSvc)
 	claimHandler := handler.NewClaimHandler(claimSvc)
 	chatHandler := handler.NewChatHandler(chatSvc, taskSvc, claimSvc)
-	userHandler := handler.NewUserHandler()
+	userHandler := handler.NewUserHandler(userSvc)
 
 	// Task routes
 	api.POST("/tasks", taskHandler.CreateTask)
@@ -146,6 +148,7 @@ func main() {
 
 	// User routes
 	api.GET("/users/me", userHandler.GetMe)
+	api.PUT("/users/me/push-token", userHandler.UpdatePushToken)
 
 	// Server
 	port := os.Getenv("PORT")

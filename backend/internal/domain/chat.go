@@ -7,14 +7,14 @@ import (
 )
 
 type Chat struct {
-	ID                    uuid.UUID `json:"id"`
-	TaskID                uuid.UUID `json:"task_id"`
-	ParticipantID         uuid.UUID `json:"participant_id"`
-	OtherParticipantID    uuid.UUID `json:"other_participant_id"`
-	DeletedByParticipant  bool      `json:"deleted_by_participant"`
-	DeletedByOther        bool      `json:"deleted_by_other"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
+	ID                   uuid.UUID `json:"id"`
+	TaskID               uuid.UUID `json:"task_id"`
+	ParticipantID        uuid.UUID `json:"participant_id"`
+	OtherParticipantID   uuid.UUID `json:"other_participant_id"`
+	DeletedByParticipant bool      `json:"deleted_by_participant"`
+	DeletedByOther       bool      `json:"deleted_by_other"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 func (c *Chat) IsDeleted() bool {

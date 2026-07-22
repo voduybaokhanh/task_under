@@ -13,4 +13,6 @@ type User struct {
 	Reputation  int       `json:"reputation"`
 	TotalEarned float64   `json:"total_earned"`
 	TotalSpent  float64   `json:"total_spent"`
+	// PushToken is the device's Expo push token. Never returned to clients.
+	PushToken string `json:"-"`
 }

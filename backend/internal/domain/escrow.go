@@ -23,12 +23,12 @@ const (
 )
 
 type EscrowTransaction struct {
-	ID              uuid.UUID            `json:"id"`
-	TaskID          uuid.UUID            `json:"task_id"`
-	UserID          uuid.UUID            `json:"user_id"`
-	Amount          float64              `json:"amount"`
-	TransactionType EscrowTransactionType `json:"transaction_type"`
+	ID              uuid.UUID               `json:"id"`
+	TaskID          uuid.UUID               `json:"task_id"`
+	UserID          uuid.UUID               `json:"user_id"`
+	Amount          float64                 `json:"amount"`
+	TransactionType EscrowTransactionType   `json:"transaction_type"`
 	Status          EscrowTransactionStatus `json:"status"`
-	CreatedAt       time.Time            `json:"created_at"`
-	CompletedAt     *time.Time           `json:"completed_at,omitempty"`
+	CreatedAt       time.Time               `json:"created_at"`
+	CompletedAt     *time.Time              `json:"completed_at,omitempty"`
 }

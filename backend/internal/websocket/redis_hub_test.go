@@ -31,7 +31,7 @@ func TestRedisFanoutCrossesInstances(t *testing.T) {
 	userID := uuid.New()
 	alice := newTestClient(instanceB, userID) // connected to instance B only
 
-	instanceA.BroadcastToUser(userID, Message{Type: "claim_created"})
+	instanceA.NotifyUser(userID, "claim_created", nil)
 
 	select {
 	case <-alice.Send:
@@ -59,7 +59,7 @@ func TestRedisFanoutDoesNotDuplicateOnPublisher(t *testing.T) {
 	alice := newTestClient(hub, userID)
 	alice.Send = make(chan []byte, 4) // room to catch duplicates
 
-	hub.BroadcastToUser(userID, Message{Type: "claim_created"})
+	hub.NotifyUser(userID, "claim_created", nil)
 	time.Sleep(300 * time.Millisecond)
 
 	if got := len(alice.Send); got != 1 {

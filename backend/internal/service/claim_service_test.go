@@ -182,8 +182,9 @@ func TestClaimTask(t *testing.T) {
 	chatRepo := &mockChatRepoForClaimSvc{}
 	escrowSvc := &mockEscrowSvc{}
 	userRepo := &mockUserRepo{}
+	notifier := &recordingNotifier{}
 
-	service := NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo)
+	service := NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo, notifier)
 
 	ownerID := uuid.New()
 	claimerID := uuid.New()
@@ -213,6 +214,9 @@ func TestClaimTask(t *testing.T) {
 	// Task status should be updated to claimed
 	updatedTask, _ := taskRepo.GetByID(context.Background(), taskID)
 	assert.Equal(t, domain.TaskStatusClaimed, updatedTask.Status)
+
+	// The owner must be told someone claimed their task.
+	assert.Equal(t, []event{{UserID: ownerID, Type: "claim_created"}}, notifier.events())
 }
 
 func TestClaimTaskLimitReached(t *testing.T) {
@@ -221,8 +225,9 @@ func TestClaimTaskLimitReached(t *testing.T) {
 	chatRepo := &mockChatRepoForClaimSvc{}
 	escrowSvc := &mockEscrowSvc{}
 	userRepo := &mockUserRepo{}
+	notifier := &recordingNotifier{}
 
-	service := NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo)
+	service := NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo, notifier)
 
 	ownerID := uuid.New()
 	claimerID1 := uuid.New()
@@ -253,7 +258,7 @@ func TestClaimTaskLimitReached(t *testing.T) {
 	assert.Equal(t, ErrClaimLimitReached, err)
 }
 
-type mockUserRepo struct{}
+type mockUserRepo struct{ pushToken string }
 
 func (m *mockUserRepo) GetOrCreateByDeviceID(ctx context.Context, deviceID string) (*domain.User, error) {
 	return &domain.User{ID: uuid.New()}, nil
@@ -272,5 +277,10 @@ func (m *mockUserRepo) UpdateEarnings(ctx context.Context, id uuid.UUID, amount 
 }
 
 func (m *mockUserRepo) UpdateSpending(ctx context.Context, id uuid.UUID, amount float64) error {
+	return nil
+}
+
+func (m *mockUserRepo) UpdatePushToken(ctx context.Context, id uuid.UUID, token string) error {
+	m.pushToken = token
 	return nil
 }

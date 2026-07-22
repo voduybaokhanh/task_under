@@ -1,5 +1,9 @@
 # Underground Task Marketplace
 
+[![Backend CI](https://github.com/voduybaokhanh/task_under/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/voduybaokhanh/task_under/actions/workflows/backend-ci.yml)
+[![Mobile CI](https://github.com/voduybaokhanh/task_under/actions/workflows/mobile-ci.yml/badge.svg)](https://github.com/voduybaokhanh/task_under/actions/workflows/mobile-ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 A privacy-focused, anonymous task-for-reward marketplace built with Go (backend) and React Native/Expo (mobile).
 
 ## Overview
@@ -159,26 +163,34 @@ Then press `i` for iOS simulator or `a` for Android emulator.
 ### Docker Compose (Full Stack)
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 This starts:
 
-- PostgreSQL on port 5432
+- PostgreSQL on port 5432 (set `POSTGRES_PORT` if that port is already taken)
 - Redis on port 6379
 - Backend on port 8080
+- Prometheus on port 9090
+- Grafana on port 3000 (admin/admin)
+
+Running several backend instances against the same Redis is supported: WebSocket
+events are fanned out over Pub/Sub, so a user connected to one instance still
+receives events emitted by another.
 
 ## API Endpoints
 
 ### Users
 
 - `GET /api/v1/users/me` - Get current user profile (reputation, earnings, spending)
+- `PUT /api/v1/users/me/push-token` - Register the device's Expo push token
 
 ### Tasks
 
 - `POST /api/v1/tasks` - Create task
 - `GET /api/v1/tasks` - List open tasks
 - `GET /api/v1/tasks/my` - Get user's tasks
+- `GET /api/v1/tasks/search?q=&status=` - Full-text search (PostgreSQL tsvector)
 - `GET /api/v1/task/:id` - Get task details
 
 ### Claims
@@ -202,13 +214,30 @@ This starts:
 
 - `GET /ws` - WebSocket connection (requires X-Device-ID header)
 
+Events pushed to the client: `chat_message`, `claim_created`, `completion_submitted`,
+`claim_approved`, `claim_rejected`. The same events are sent as Expo push
+notifications when the user has registered a push token.
+
+### Operations
+
+- `GET /health` - Health check
+- `GET /metrics` - Prometheus metrics (requests, latency, active WebSockets, task counters)
+
 ## Testing
 
-Run backend tests:
+Run backend tests (no external services needed — Redis is faked in-process
+with miniredis):
 
 ```bash
 cd backend
-go test ./internal/service/...
+go test ./... -race
+```
+
+Mobile type check:
+
+```bash
+cd mobile
+npx tsc --noEmit
 ```
 
 Key test coverage:
@@ -216,12 +245,14 @@ Key test coverage:
 - Task auto-cancellation on expired deadlines
 - Claim limit enforcement
 - Escrow locking/releasing
+- WebSocket fanout across two instances over Redis, with no duplicate on the publisher
+- Notifications: who gets told about a chat message or claim, and what reaches Expo
 
 ## Production Considerations
 
 ### Security
 
-- [ ] Add rate limiting per user (currently global)
+- [x] Per-device rate limiting (Redis sliding window, 60 req/min)
 - [ ] Implement proper CORS configuration
 - [ ] Add request validation middleware
 - [ ] Secure WebSocket connections (WSS)
@@ -233,15 +264,20 @@ Key test coverage:
 - [ ] Add database connection pooling
 - [ ] Implement Redis caching for frequently accessed data
 - [ ] Add message queue for background jobs
-- [ ] Horizontal scaling for WebSocket connections
+- [x] Horizontal scaling for WebSocket connections (Redis Pub/Sub fanout)
 - [ ] Database read replicas
 
 ### Monitoring
 
 - [ ] Add structured logging
-- [ ] Metrics collection (Prometheus)
+- [x] Metrics collection (Prometheus + Grafana dashboards)
 - [ ] Error tracking (Sentry)
-- [ ] Health check endpoints
+- [x] Health check endpoints
+
+### Notifications
+
+- [x] Push notifications via Expo (claim, approval, rejection, submission, chat)
+- [ ] Notification preferences per user
 
 ### Payment Integration
 
@@ -256,6 +292,32 @@ Key test coverage:
 - [ ] CDN for image delivery
 
 ## Changelog
+
+### v3 — Production Upgrades
+
+**CI/CD**
+- GitHub Actions: `backend-ci` (vet, lint, test, docker build), `mobile-ci` (npm ci, tsc, expo export), `release` (tag `v*` → image on GHCR)
+
+**Rate limiting**
+- Per-device Redis sliding window (60 req/min) replaces the global limiter; returns `429` with `X-RateLimit-Remaining` and `Retry-After`
+- No-op when Redis is absent, so local development needs no extra service
+
+**Observability**
+- Prometheus metrics: request counter, latency histogram, active WebSocket gauge, tasks created/completed
+- `/metrics` endpoint plus Prometheus and Grafana services with provisioned dashboards
+
+**Search**
+- `tasks.search_vector` (tsvector + GIN index, kept fresh by a trigger) and `GET /api/v1/tasks/search`, ranked with `ts_rank`
+- Mobile search bar calls the API with a 300 ms debounce instead of filtering locally
+
+**WebSocket scaling**
+- Hub fans out over Redis Pub/Sub (`ws:fanout`), so any instance can deliver to a user connected to any other; falls back to in-memory when Redis is absent
+- Fixed a latent data race: the broadcast paths mutated the client map under a read lock
+- The hub previously had no callers at all — services now emit events through a `Notifier` interface
+
+**Push notifications**
+- Expo push (no Firebase credentials required): `users.push_token`, `PUT /api/v1/users/me/push-token`, and `registerForPushNotifications()` on app start
+- Claim, approval, rejection, completion and chat events reach both the open app (WebSocket) and the closed one (push) via `MultiNotifier`
 
 ### v2 — UI/UX Level Up & PostgreSQL 18 Compatibility
 
@@ -305,8 +367,7 @@ Key test coverage:
 1. **Escrow**: Currently simulated, not real payment processing
 2. **Image Upload**: Placeholder only, needs S3/Cloud Storage integration
 3. **Arbitration**: Owner-only, no third-party arbitration yet
-4. **Rate Limiting**: Global rate limit, should be per-user
-5. **WebSocket**: Single instance only, needs Redis pub/sub for scaling
+4. **Push notifications**: Expo push service only; no Firebase/APNs credentials of our own
 
 ## Future Improvements
 

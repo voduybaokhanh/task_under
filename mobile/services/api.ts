@@ -48,6 +48,10 @@ class ApiService {
     return response.data;
   }
 
+  async updatePushToken(pushToken: string): Promise<void> {
+    await this.client.put('/api/v1/users/me/push-token', { push_token: pushToken });
+  }
+
   // Task endpoints
   async createTask(data: {
     title: string;

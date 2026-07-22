@@ -13,7 +13,6 @@ import (
 
 type Hub struct {
 	clients    map[uuid.UUID]*Client
-	broadcast  chan []byte
 	register   chan *Client
 	unregister chan *Client
 	mu         sync.RWMutex
@@ -21,22 +20,21 @@ type Hub struct {
 }
 
 type Client struct {
-	ID       uuid.UUID
-	UserID   uuid.UUID
-	Conn     *websocket.Conn
-	Send     chan []byte
-	Hub      *Hub
+	ID     uuid.UUID
+	UserID uuid.UUID
+	Conn   *websocket.Conn
+	Send   chan []byte
+	Hub    *Hub
 }
 
 type Message struct {
-	Type    string      `json:"type"`
-	Payload interface{} `json:"payload"`
+	Type    string `json:"type"`
+	Payload any    `json:"payload"`
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		clients:    make(map[uuid.UUID]*Client),
-		broadcast:  make(chan []byte),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 	}
@@ -61,18 +59,6 @@ func (h *Hub) Run() {
 			}
 			h.mu.Unlock()
 			log.Printf("Client disconnected: %s", client.ID)
-
-		case message := <-h.broadcast:
-			h.mu.RLock()
-			for _, client := range h.clients {
-				select {
-				case client.Send <- message:
-				default:
-					close(client.Send)
-					delete(h.clients, client.ID)
-				}
-			}
-			h.mu.RUnlock()
 		}
 	}
 }
@@ -80,15 +66,7 @@ func (h *Hub) Run() {
 // NotifyUser implements service.Notifier so services can emit real-time
 // events without importing this package.
 func (h *Hub) NotifyUser(userID uuid.UUID, eventType string, payload any) {
-	h.BroadcastToUser(userID, Message{Type: eventType, Payload: payload})
-}
-
-func (h *Hub) BroadcastToUser(userID uuid.UUID, message Message) {
-	h.send([]uuid.UUID{userID}, message)
-}
-
-func (h *Hub) BroadcastToTask(taskID uuid.UUID, message Message, userIDs []uuid.UUID) {
-	h.send(userIDs, message)
+	h.send([]uuid.UUID{userID}, Message{Type: eventType, Payload: payload})
 }
 
 // send routes a message to the given users. With Redis configured it goes out

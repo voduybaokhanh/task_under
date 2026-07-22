@@ -20,7 +20,7 @@ func TestSendWithoutRedisDeliversLocally(t *testing.T) {
 	alice := newTestClient(hub, uuid.New())
 	bob := newTestClient(hub, uuid.New())
 
-	hub.BroadcastToUser(alice.UserID, Message{Type: "claim_created"})
+	hub.NotifyUser(alice.UserID, "claim_created", nil)
 
 	select {
 	case data := <-alice.Send:
@@ -40,15 +40,14 @@ func TestSendWithoutRedisDeliversLocally(t *testing.T) {
 	}
 }
 
-// BroadcastToTask reaches every participant of the task.
-func TestBroadcastToTaskReachesAllParticipants(t *testing.T) {
+// A message addressed to several users reaches each of them, and nobody else.
+func TestSendReachesEveryAddressedUser(t *testing.T) {
 	hub := NewHub()
 	owner := newTestClient(hub, uuid.New())
 	claimer := newTestClient(hub, uuid.New())
 	stranger := newTestClient(hub, uuid.New())
 
-	hub.BroadcastToTask(uuid.New(), Message{Type: "chat_message"},
-		[]uuid.UUID{owner.UserID, claimer.UserID})
+	hub.send([]uuid.UUID{owner.UserID, claimer.UserID}, Message{Type: "chat_message"})
 
 	for name, c := range map[string]*Client{"owner": owner, "claimer": claimer} {
 		if len(c.Send) != 1 {

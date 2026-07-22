@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/task-underground/backend/internal/middleware"
-	"github.com/task-underground/backend/internal/service"
 )
 
 var upgrader = websocket.Upgrader{
@@ -20,15 +19,11 @@ var upgrader = websocket.Upgrader{
 }
 
 type WSHandler struct {
-	hub      *Hub
-	userSvc  service.UserService
+	hub *Hub
 }
 
-func NewWSHandler(hub *Hub, userSvc service.UserService) *WSHandler {
-	return &WSHandler{
-		hub:     hub,
-		userSvc: userSvc,
-	}
+func NewWSHandler(hub *Hub) *WSHandler {
+	return &WSHandler{hub: hub}
 }
 
 func (h *WSHandler) HandleWebSocket(c *gin.Context) {
