@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
 	"github.com/task-underground/backend/internal/metrics"
 )
 
@@ -16,6 +17,7 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 	mu         sync.RWMutex
+	redis      *redis.Client // nil → single-instance, in-memory only
 }
 
 type Client struct {
@@ -76,50 +78,49 @@ func (h *Hub) Run() {
 }
 
 func (h *Hub) BroadcastToUser(userID uuid.UUID, message Message) {
-	data, err := json.Marshal(message)
-	if err != nil {
-		log.Printf("Error marshaling message: %v", err)
-		return
-	}
-
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	for _, client := range h.clients {
-		if client.UserID == userID {
-			select {
-			case client.Send <- data:
-			default:
-				close(client.Send)
-				delete(h.clients, client.ID)
-			}
-		}
-	}
+	h.send([]uuid.UUID{userID}, message)
 }
 
 func (h *Hub) BroadcastToTask(taskID uuid.UUID, message Message, userIDs []uuid.UUID) {
+	h.send(userIDs, message)
+}
+
+// send routes a message to the given users. With Redis configured it goes out
+// over Pub/Sub and comes back through this instance's own subscription, so
+// clients on every instance are reached exactly once.
+func (h *Hub) send(userIDs []uuid.UUID, message Message) {
 	data, err := json.Marshal(message)
 	if err != nil {
 		log.Printf("Error marshaling message: %v", err)
 		return
 	}
 
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	if h.publish(userIDs, data) {
+		return
+	}
+	h.deliver(userIDs, data)
+}
 
-	userMap := make(map[uuid.UUID]bool)
+// deliver writes data to the locally connected clients belonging to userIDs.
+func (h *Hub) deliver(userIDs []uuid.UUID, data []byte) {
+	recipients := make(map[uuid.UUID]bool, len(userIDs))
 	for _, id := range userIDs {
-		userMap[id] = true
+		recipients[id] = true
 	}
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	for _, client := range h.clients {
-		if userMap[client.UserID] {
-			select {
-			case client.Send <- data:
-			default:
-				close(client.Send)
-				delete(h.clients, client.ID)
-			}
+		if !recipients[client.UserID] {
+			continue
+		}
+		select {
+		case client.Send <- data:
+		default:
+			close(client.Send)
+			delete(h.clients, client.ID)
+			metrics.WSConnectionsActive.Dec()
 		}
 	}
 }

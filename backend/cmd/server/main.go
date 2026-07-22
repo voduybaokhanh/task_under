@@ -58,8 +58,10 @@ func main() {
 	chatSvc := service.NewChatService(chatRepo)
 	claimSvc := service.NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo)
 
-	// WebSocket Hub
+	// WebSocket Hub. With Redis it fans out over Pub/Sub so several backend
+	// instances can serve the same user; without it, in-memory single instance.
 	wsHub := websocket.NewHub()
+	wsHub.UseRedis(context.Background(), redisClient)
 	go wsHub.Run()
 
 	// Background job for auto-cancelling expired tasks
