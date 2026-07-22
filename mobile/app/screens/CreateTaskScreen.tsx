@@ -11,38 +11,87 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { useTaskStore } from '../../store/useTaskStore';
 
+function addDays(d: number): string {
+  return new Date(Date.now() + d * 86400000).toISOString();
+}
+
+function DatePresets({
+  label,
+  options,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  options: { label: string; days: number }[];
+  selected: number;
+  onSelect: (days: number) => void;
+}) {
+  return (
+    <View style={styles.presetContainer}>
+      <Text style={styles.presetLabel}>{label}</Text>
+      <View style={styles.presetRow}>
+        {options.map((o) => (
+          <TouchableOpacity
+            key={o.days}
+            style={[styles.presetChip, selected === o.days && styles.presetChipActive]}
+            onPress={() => onSelect(o.days)}
+          >
+            <Text style={[styles.presetText, selected === o.days && styles.presetTextActive]}>
+              {o.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const CLAIM_OPTIONS = [
+  { label: '1 day', days: 1 },
+  { label: '3 days', days: 3 },
+  { label: '7 days', days: 7 },
+  { label: '14 days', days: 14 },
+];
+
+const OWNER_OPTIONS = [
+  { label: '7 days', days: 7 },
+  { label: '14 days', days: 14 },
+  { label: '30 days', days: 30 },
+  { label: '60 days', days: 60 },
+];
+
 export default function CreateTaskScreen() {
   const navigation = useNavigation();
   const { createTask, loading } = useTaskStore();
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    reward_amount: '',
-    max_claimants: '',
-    claim_deadline: '',
-    owner_deadline: '',
-  });
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [rewardAmount, setRewardAmount] = useState('');
+  const [maxClaimants, setMaxClaimants] = useState('1');
+  const [claimDays, setClaimDays] = useState(7);
+  const [ownerDays, setOwnerDays] = useState(30);
 
   const handleSubmit = async () => {
-    if (!formData.title || !formData.description || !formData.reward_amount) {
-      Alert.alert('Error', 'Please fill in all required fields');
+    if (!title.trim() || !description.trim() || !rewardAmount) {
+      Alert.alert('Missing fields', 'Please fill in title, description, and reward amount.');
+      return;
+    }
+    const reward = parseFloat(rewardAmount);
+    if (isNaN(reward) || reward <= 0) {
+      Alert.alert('Invalid reward', 'Reward must be a positive number.');
       return;
     }
 
     try {
-      const claimDeadline = new Date(formData.claim_deadline || Date.now() + 7 * 24 * 60 * 60 * 1000);
-      const ownerDeadline = new Date(formData.owner_deadline || Date.now() + 30 * 24 * 60 * 60 * 1000);
-
       await createTask({
-        title: formData.title,
-        description: formData.description,
-        reward_amount: parseFloat(formData.reward_amount),
-        max_claimants: parseInt(formData.max_claimants) || 1,
-        claim_deadline: claimDeadline.toISOString(),
-        owner_deadline: ownerDeadline.toISOString(),
+        title: title.trim(),
+        description: description.trim(),
+        reward_amount: reward,
+        max_claimants: parseInt(maxClaimants) || 1,
+        claim_deadline: addDays(claimDays),
+        owner_deadline: addDays(ownerDays),
       });
 
-      Alert.alert('Success', 'Task created successfully', [
+      Alert.alert('Task created!', 'Your task is now live.', [
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
     } catch (error: any) {
@@ -51,74 +100,80 @@ export default function CreateTaskScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
       <View style={styles.form}>
         <Text style={styles.label}>Title *</Text>
         <TextInput
           style={styles.input}
-          value={formData.title}
-          onChangeText={(text) => setFormData({ ...formData, title: text })}
-          placeholder="Task title"
-          placeholderTextColor="#666"
+          value={title}
+          onChangeText={setTitle}
+          placeholder="What needs to be done?"
+          placeholderTextColor="#555"
+          maxLength={120}
         />
 
         <Text style={styles.label}>Description *</Text>
         <TextInput
           style={[styles.input, styles.textArea]}
-          value={formData.description}
-          onChangeText={(text) => setFormData({ ...formData, description: text })}
-          placeholder="Task description"
-          placeholderTextColor="#666"
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Describe the task in detail..."
+          placeholderTextColor="#555"
           multiline
-          numberOfLines={4}
+          numberOfLines={5}
+          textAlignVertical="top"
+          maxLength={2000}
         />
 
-        <Text style={styles.label}>Reward Amount ($) *</Text>
+        <Text style={styles.label}>Reward ($) *</Text>
         <TextInput
           style={styles.input}
-          value={formData.reward_amount}
-          onChangeText={(text) => setFormData({ ...formData, reward_amount: text })}
-          placeholder="0.00"
-          placeholderTextColor="#666"
-          keyboardType="numeric"
+          value={rewardAmount}
+          onChangeText={setRewardAmount}
+          placeholder="10.00"
+          placeholderTextColor="#555"
+          keyboardType="decimal-pad"
         />
 
         <Text style={styles.label}>Max Claimants</Text>
-        <TextInput
-          style={styles.input}
-          value={formData.max_claimants}
-          onChangeText={(text) => setFormData({ ...formData, max_claimants: text })}
-          placeholder="1"
-          placeholderTextColor="#666"
-          keyboardType="numeric"
-        />
+        <View style={styles.claimantRow}>
+          {['1', '2', '3', '5', '10'].map((n) => (
+            <TouchableOpacity
+              key={n}
+              style={[styles.presetChip, maxClaimants === n && styles.presetChipActive]}
+              onPress={() => setMaxClaimants(n)}
+            >
+              <Text style={[styles.presetText, maxClaimants === n && styles.presetTextActive]}>{n}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-        <Text style={styles.label}>Claim Deadline (YYYY-MM-DD)</Text>
-        <TextInput
-          style={styles.input}
-          value={formData.claim_deadline}
-          onChangeText={(text) => setFormData({ ...formData, claim_deadline: text })}
-          placeholder="2024-01-15"
-          placeholderTextColor="#666"
+        <DatePresets
+          label="Claim Deadline"
+          options={CLAIM_OPTIONS}
+          selected={claimDays}
+          onSelect={setClaimDays}
         />
+        <Text style={styles.deadlineHint}>
+          Claimants have until {new Date(Date.now() + claimDays * 86400000).toLocaleDateString()} to claim
+        </Text>
 
-        <Text style={styles.label}>Owner Deadline (YYYY-MM-DD)</Text>
-        <TextInput
-          style={styles.input}
-          value={formData.owner_deadline}
-          onChangeText={(text) => setFormData({ ...formData, owner_deadline: text })}
-          placeholder="2024-01-30"
-          placeholderTextColor="#666"
+        <DatePresets
+          label="Completion Deadline"
+          options={OWNER_OPTIONS}
+          selected={ownerDays}
+          onSelect={setOwnerDays}
         />
+        <Text style={styles.deadlineHint}>
+          Work must be approved by {new Date(Date.now() + ownerDays * 86400000).toLocaleDateString()}
+        </Text>
 
         <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
+          style={[styles.submitButton, loading && styles.submitDisabled]}
           onPress={handleSubmit}
           disabled={loading}
         >
-          <Text style={styles.buttonText}>
-            {loading ? 'Creating...' : 'Create Task'}
-          </Text>
+          <Text style={styles.submitText}>{loading ? 'Creating...' : 'Create Task'}</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -126,46 +181,58 @@ export default function CreateTaskScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  form: {
-    padding: 16,
-  },
+  container: { flex: 1, backgroundColor: '#000' },
+  form: { padding: 16 },
   label: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#fff',
+    color: '#aaa',
     marginBottom: 8,
-    marginTop: 16,
+    marginTop: 20,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   input: {
     backgroundColor: '#111',
     borderWidth: 1,
     borderColor: '#333',
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: 10,
+    padding: 14,
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
   },
-  textArea: {
-    height: 100,
-    textAlignVertical: 'top',
-  },
-  button: {
-    backgroundColor: '#333',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 24,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
+  textArea: { height: 120 },
+  claimantRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  presetContainer: { marginTop: 20 },
+  presetLabel: {
+    fontSize: 14,
     fontWeight: '600',
+    color: '#aaa',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
+  presetRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  presetChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#333',
+    backgroundColor: '#111',
+  },
+  presetChipActive: { backgroundColor: '#4CAF50', borderColor: '#4CAF50' },
+  presetText: { color: '#777', fontSize: 14, fontWeight: '500' },
+  presetTextActive: { color: '#fff' },
+  deadlineHint: { fontSize: 12, color: '#555', marginTop: 6 },
+  submitButton: {
+    backgroundColor: '#4CAF50',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 32,
+    marginBottom: 32,
+  },
+  submitDisabled: { opacity: 0.5 },
+  submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

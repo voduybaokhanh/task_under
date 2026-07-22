@@ -24,23 +24,19 @@ func NewUserRepository(db *sql.DB) UserRepository {
 	return &userRepository{db: db}
 }
 
+func scanUser(row interface{ Scan(...interface{}) error }) (*domain.User, error) {
+	user := &domain.User{}
+	err := row.Scan(&user.ID, &user.DeviceID, &user.CreatedAt, &user.Reputation, &user.TotalEarned, &user.TotalSpent)
+	return user, err
+}
+
 func (r *userRepository) GetOrCreateByDeviceID(ctx context.Context, deviceID string) (*domain.User, error) {
-	query := `
-		INSERT INTO users (device_id)
-		VALUES ($1)
+	const q = `
+		INSERT INTO users (device_id) VALUES ($1)
 		ON CONFLICT (device_id) DO UPDATE SET device_id = users.device_id
 		RETURNING id, device_id, created_at, reputation, total_earned, total_spent
 	`
-	
-	user := &domain.User{}
-	err := r.db.QueryRowContext(ctx, query, deviceID).Scan(
-		&user.ID,
-		&user.DeviceID,
-		&user.CreatedAt,
-		&user.Reputation,
-		&user.TotalEarned,
-		&user.TotalSpent,
-	)
+	user, err := scanUser(r.db.QueryRowContext(ctx, q, deviceID))
 	if err != nil {
 		return nil, err
 	}
@@ -48,21 +44,11 @@ func (r *userRepository) GetOrCreateByDeviceID(ctx context.Context, deviceID str
 }
 
 func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
-	query := `
+	const q = `
 		SELECT id, device_id, created_at, reputation, total_earned, total_spent
-		FROM users
-		WHERE id = $1
+		FROM users WHERE id = $1::uuid
 	`
-	
-	user := &domain.User{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&user.ID,
-		&user.DeviceID,
-		&user.CreatedAt,
-		&user.Reputation,
-		&user.TotalEarned,
-		&user.TotalSpent,
-	)
+	user, err := scanUser(r.db.QueryRowContext(ctx, q, id.String()))
 	if err != nil {
 		return nil, err
 	}
@@ -70,19 +56,16 @@ func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Use
 }
 
 func (r *userRepository) UpdateReputation(ctx context.Context, id uuid.UUID, delta int) error {
-	query := `UPDATE users SET reputation = reputation + $1 WHERE id = $2`
-	_, err := r.db.ExecContext(ctx, query, delta, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET reputation = reputation + $1 WHERE id = $2::uuid`, delta, id.String())
 	return err
 }
 
 func (r *userRepository) UpdateEarnings(ctx context.Context, id uuid.UUID, amount float64) error {
-	query := `UPDATE users SET total_earned = total_earned + $1 WHERE id = $2`
-	_, err := r.db.ExecContext(ctx, query, amount, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET total_earned = total_earned + $1 WHERE id = $2::uuid`, amount, id.String())
 	return err
 }
 
 func (r *userRepository) UpdateSpending(ctx context.Context, id uuid.UUID, amount float64) error {
-	query := `UPDATE users SET total_spent = total_spent + $1 WHERE id = $2`
-	_, err := r.db.ExecContext(ctx, query, amount, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET total_spent = total_spent + $1 WHERE id = $2::uuid`, amount, id.String())
 	return err
 }

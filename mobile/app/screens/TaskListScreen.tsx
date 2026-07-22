@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,61 +7,131 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  TextInput,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTaskStore } from '../../store/useTaskStore';
 import { Task } from '../../types';
 
+const STATUS_COLORS: Record<string, string> = {
+  open: '#4CAF50',
+  claimed: '#FF9800',
+  completed: '#2196F3',
+  cancelled: '#555',
+  disputed: '#F44336',
+};
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <View style={[styles.badge, { backgroundColor: STATUS_COLORS[status] ?? '#555' }]}>
+      <Text style={styles.badgeText}>{status.toUpperCase()}</Text>
+    </View>
+  );
+}
+
+function timeRemaining(deadline: string): string {
+  const diff = new Date(deadline).getTime() - Date.now();
+  if (diff <= 0) return 'Expired';
+  const h = Math.floor(diff / 3600000);
+  if (h < 24) return `${h}h left`;
+  const d = Math.floor(h / 24);
+  return `${d}d left`;
+}
+
+const FILTERS = ['all', 'open', 'claimed', 'completed'] as const;
+type Filter = typeof FILTERS[number];
+
 export default function TaskListScreen() {
   const navigation = useNavigation();
   const { tasks, loading, error, fetchOpenTasks } = useTaskStore();
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<Filter>('all');
 
   useEffect(() => {
     fetchOpenTasks();
   }, []);
 
+  const filtered = useMemo(() => {
+    return tasks.filter((t) => {
+      const matchFilter = filter === 'all' || t.status === filter;
+      const q = search.toLowerCase();
+      const matchSearch = !q || t.title.toLowerCase().includes(q) || t.description.toLowerCase().includes(q);
+      return matchFilter && matchSearch;
+    });
+  }, [tasks, search, filter]);
+
   const renderTask = ({ item }: { item: Task }) => (
     <TouchableOpacity
       style={styles.taskCard}
       onPress={() => navigation.navigate('TaskDetail' as never, { taskId: item.id } as never)}
+      activeOpacity={0.75}
     >
-      <Text style={styles.taskTitle}>{item.title}</Text>
+      <View style={styles.cardTop}>
+        <Text style={styles.taskTitle} numberOfLines={1}>{item.title}</Text>
+        <StatusBadge status={item.status} />
+      </View>
       <Text style={styles.taskReward}>${item.reward_amount.toFixed(2)}</Text>
-      <Text style={styles.taskDescription} numberOfLines={2}>
-        {item.description}
-      </Text>
-      <Text style={styles.taskMeta}>
-        Claim by: {new Date(item.claim_deadline).toLocaleDateString()} • Status: {item.status}
-      </Text>
+      <Text style={styles.taskDescription} numberOfLines={2}>{item.description}</Text>
+      <View style={styles.cardBottom}>
+        <Text style={styles.metaText}>{timeRemaining(item.claim_deadline)}</Text>
+        <Text style={styles.metaText}>{item.max_claimants} slot{item.max_claimants !== 1 ? 's' : ''}</Text>
+      </View>
     </TouchableOpacity>
   );
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Available Tasks</Text>
+        <Text style={styles.headerTitle}>Tasks</Text>
         <TouchableOpacity
           style={styles.createButton}
           onPress={() => navigation.navigate('CreateTask' as never)}
         >
-          <Text style={styles.createButtonText}>+ Create</Text>
+          <Text style={styles.createButtonText}>+ New</Text>
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.searchRow}>
+        <TextInput
+          style={styles.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search tasks..."
+          placeholderTextColor="#555"
+        />
+      </View>
+
+      <View style={styles.filterRow}>
+        {FILTERS.map((f) => (
+          <TouchableOpacity
+            key={f}
+            style={[styles.filterChip, filter === f && styles.filterChipActive]}
+            onPress={() => setFilter(f)}
+          >
+            <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
+              {f.charAt(0).toUpperCase() + f.slice(1)}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {error && <Text style={styles.error}>{error}</Text>}
 
       {loading && tasks.length === 0 ? (
-        <ActivityIndicator size="large" style={styles.loader} />
+        <ActivityIndicator size="large" color="#4CAF50" style={styles.loader} />
       ) : (
         <FlatList
-          data={tasks}
+          data={filtered}
           renderItem={renderTask}
           keyExtractor={(item) => item.id}
-          refreshControl={
-            <RefreshControl refreshing={loading} onRefresh={fetchOpenTasks} />
-          }
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchOpenTasks} tintColor="#4CAF50" />}
+          contentContainerStyle={styles.listContent}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No tasks available</Text>
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                {search ? 'No matching tasks' : 'No tasks available'}
+              </Text>
+            </View>
           }
         />
       )}
@@ -70,74 +140,82 @@ export default function TaskListScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
+  container: { flex: 1, backgroundColor: '#000' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: '#111',
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
+  headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#fff' },
   createButton: {
-    backgroundColor: '#333',
+    backgroundColor: '#4CAF50',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
   },
-  createButtonText: {
+  createButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  searchRow: { padding: 12, paddingBottom: 4 },
+  searchInput: {
+    backgroundColor: '#111',
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     color: '#fff',
-    fontWeight: '600',
+    fontSize: 15,
   },
-  error: {
-    color: '#ff4444',
-    padding: 16,
-    textAlign: 'center',
+  filterRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
   },
-  loader: {
-    marginTop: 50,
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#333',
+    backgroundColor: '#111',
   },
+  filterChipActive: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
+  },
+  filterText: { color: '#777', fontSize: 13, fontWeight: '500' },
+  filterTextActive: { color: '#fff' },
+  error: { color: '#ff4444', padding: 16, textAlign: 'center' },
+  loader: { marginTop: 50 },
+  listContent: { padding: 12 },
   taskCard: {
     backgroundColor: '#111',
     padding: 16,
-    marginHorizontal: 16,
-    marginVertical: 8,
-    borderRadius: 8,
+    marginBottom: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: '#222',
   },
-  taskTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
+  cardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
   },
-  taskReward: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#4CAF50',
-    marginBottom: 8,
+  taskTitle: { fontSize: 16, fontWeight: 'bold', color: '#fff', flex: 1, marginRight: 8 },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
-  taskDescription: {
-    fontSize: 14,
-    color: '#aaa',
-    marginBottom: 8,
-  },
-  taskMeta: {
-    fontSize: 12,
-    color: '#666',
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: '#666',
-    marginTop: 50,
-    fontSize: 16,
-  },
+  badgeText: { fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
+  taskReward: { fontSize: 22, fontWeight: 'bold', color: '#4CAF50', marginBottom: 6 },
+  taskDescription: { fontSize: 13, color: '#777', lineHeight: 18, marginBottom: 10 },
+  cardBottom: { flexDirection: 'row', justifyContent: 'space-between' },
+  metaText: { fontSize: 12, color: '#555' },
+  emptyContainer: { alignItems: 'center', marginTop: 60 },
+  emptyText: { color: '#555', fontSize: 16 },
 });

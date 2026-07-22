@@ -42,6 +42,12 @@ class ApiService {
     return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  // User endpoints
+  async getMe(): Promise<import('../types').User> {
+    const response = await this.client.get<import('../types').User>('/api/v1/users/me');
+    return response.data;
+  }
+
   // Task endpoints
   async createTask(data: {
     title: string;

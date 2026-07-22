@@ -112,6 +112,7 @@ func main() {
 	taskHandler := handler.NewTaskHandler(taskSvc)
 	claimHandler := handler.NewClaimHandler(claimSvc)
 	chatHandler := handler.NewChatHandler(chatSvc, taskSvc, claimSvc)
+	userHandler := handler.NewUserHandler()
 
 	// Task routes
 	api.POST("/tasks", taskHandler.CreateTask)
@@ -135,6 +136,9 @@ func main() {
 
 	// Task routes (continued)
 	api.GET("/task/:id", taskHandler.GetTask)
+
+	// User routes
+	api.GET("/users/me", userHandler.GetMe)
 
 	// Server
 	port := os.Getenv("PORT")
