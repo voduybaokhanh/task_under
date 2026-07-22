@@ -7,12 +7,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/task-underground/backend/internal/domain"
+	"github.com/task-underground/backend/internal/metrics"
 	"github.com/task-underground/backend/internal/repository"
 )
 
 var (
 	ErrClaimNotFound     = errors.New("claim not found")
-	ErrAlreadyClaimed   = errors.New("task already claimed by this user")
+	ErrAlreadyClaimed    = errors.New("task already claimed by this user")
 	ErrClaimLimitReached = errors.New("claim limit reached")
 	ErrInvalidCompletion = errors.New("invalid completion submission")
 )
@@ -32,6 +33,7 @@ type claimService struct {
 	chatRepo  repository.ChatRepository
 	escrowSvc EscrowService
 	userRepo  repository.UserRepository
+	notifier  Notifier
 }
 
 func NewClaimService(
@@ -40,13 +42,18 @@ func NewClaimService(
 	chatRepo repository.ChatRepository,
 	escrowSvc EscrowService,
 	userRepo repository.UserRepository,
+	notifier Notifier,
 ) ClaimService {
+	if notifier == nil {
+		notifier = NoopNotifier{}
+	}
 	return &claimService{
 		claimRepo: claimRepo,
 		taskRepo:  taskRepo,
 		chatRepo:  chatRepo,
 		escrowSvc: escrowSvc,
 		userRepo:  userRepo,
+		notifier:  notifier,
 	}
 }
 
@@ -104,6 +111,8 @@ func (s *claimService) ClaimTask(ctx context.Context, taskID, claimerID uuid.UUI
 		}
 	}
 
+	s.notifier.NotifyUser(task.OwnerID, "claim_created", claim)
+
 	return claim, nil
 }
 
@@ -156,6 +165,8 @@ func (s *claimService) SubmitCompletion(ctx context.Context, claimID, userID uui
 		// Log error but don't fail completion submission
 		// Chat can be created later
 	}
+
+	s.notifier.NotifyUser(task.OwnerID, "completion_submitted", claim)
 
 	// Refresh claim
 	return s.claimRepo.GetByID(ctx, claimID)
@@ -210,6 +221,9 @@ func (s *claimService) ApproveClaim(ctx context.Context, claimID, ownerID uuid.U
 	if err != nil {
 		return err
 	}
+	metrics.TasksCompletedTotal.Inc()
+
+	s.notifier.NotifyUser(claim.ClaimerID, "claim_approved", claim)
 
 	return nil
 }
@@ -236,6 +250,8 @@ func (s *claimService) RejectClaim(ctx context.Context, claimID, ownerID uuid.UU
 	if err != nil {
 		return err
 	}
+
+	s.notifier.NotifyUser(claim.ClaimerID, "claim_rejected", claim)
 
 	return nil
 }

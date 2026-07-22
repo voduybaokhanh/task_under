@@ -12,12 +12,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/task-underground/backend/internal/cache"
 	"github.com/task-underground/backend/internal/handler"
 	"github.com/task-underground/backend/internal/middleware"
+	"github.com/task-underground/backend/internal/payment"
 	"github.com/task-underground/backend/internal/repository"
 	"github.com/task-underground/backend/internal/service"
+	"github.com/task-underground/backend/internal/storage"
 	"github.com/task-underground/backend/internal/websocket"
-	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -37,6 +40,12 @@ func main() {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
+	// Redis (optional). nil when REDIS_URL is unset/unreachable → single-instance mode.
+	redisClient := cache.NewClient(os.Getenv("REDIS_URL"))
+	if redisClient != nil {
+		defer redisClient.Close()
+	}
+
 	// Repositories
 	userRepo := repository.NewUserRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
@@ -44,16 +53,32 @@ func main() {
 	chatRepo := repository.NewChatRepository(db)
 	escrowRepo := repository.NewEscrowRepository(db)
 
-	// Services
-	userSvc := service.NewUserService(userRepo)
-	escrowSvc := service.NewEscrowService(escrowRepo, taskRepo)
-	taskSvc := service.NewTaskService(taskRepo, claimRepo, escrowSvc)
-	chatSvc := service.NewChatService(chatRepo)
-	claimSvc := service.NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo)
-
-	// WebSocket Hub
+	// WebSocket Hub. With Redis it fans out over Pub/Sub so several backend
+	// instances can serve the same user; without it, in-memory single instance.
 	wsHub := websocket.NewHub()
+	wsHub.UseRedis(context.Background(), redisClient)
 	go wsHub.Run()
+
+	// Services. Events go to open apps over WebSocket and to closed ones via
+	// Expo push.
+	notifier := service.MultiNotifier{wsHub, service.NewPushNotifier(userRepo)}
+	userSvc := service.NewUserService(userRepo)
+	// Real card payments when a Stripe key is present; simulated escrow
+	// otherwise, so the app still runs locally without credentials.
+	var escrowSvc service.EscrowService
+	var connectSvc service.ConnectService
+	if stripeClient := payment.NewStripeClient(); stripeClient != nil {
+		escrowSvc = service.NewStripeEscrowService(escrowRepo, taskRepo, userRepo, stripeClient, os.Getenv("STRIPE_CURRENCY"))
+		connectSvc = service.NewConnectService(userRepo, stripeClient)
+	} else {
+		escrowSvc = service.NewEscrowService(escrowRepo, taskRepo)
+	}
+	// Only the Stripe implementation can hand out a client secret; nil makes
+	// the endpoint answer 503.
+	payments, _ := escrowSvc.(service.PaymentIntentProvider)
+	taskSvc := service.NewTaskService(taskRepo, claimRepo, escrowSvc)
+	chatSvc := service.NewChatService(chatRepo, notifier)
+	claimSvc := service.NewClaimService(claimRepo, taskRepo, chatRepo, escrowSvc, userRepo, notifier)
 
 	// Background job for auto-cancelling expired tasks
 	go func() {
@@ -84,39 +109,43 @@ func main() {
 		c.Next()
 	})
 
-	// Rate limiting
-	limiter := rate.NewLimiter(rate.Every(time.Second), 10)
-	r.Use(func(c *gin.Context) {
-		if !limiter.Allow() {
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
-			c.Abort()
-			return
-		}
-		c.Next()
-	})
+	// Prometheus request metrics
+	r.Use(middleware.Metrics())
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	// Stripe webhooks: signature-verified, so they sit outside the device auth.
+	stripeWebhook := handler.NewStripeWebhookHandler(escrowRepo)
+	r.POST("/webhooks/stripe", stripeWebhook.Handle)
+
+	// Prometheus scrape endpoint
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
 	// WebSocket
-	wsHandler := websocket.NewWSHandler(wsHub, userSvc)
+	wsHandler := websocket.NewWSHandler(wsHub)
 	r.GET("/ws", middleware.AuthMiddleware(userSvc), wsHandler.HandleWebSocket)
 
 	// API routes
 	api := r.Group("/api/v1")
 	api.Use(middleware.AuthMiddleware(userSvc))
+	// Per-device sliding-window rate limit: 60 requests / minute (no-op without Redis).
+	api.Use(middleware.PerUserRateLimit(redisClient, 60, time.Minute))
 
 	// Handlers
 	taskHandler := handler.NewTaskHandler(taskSvc)
 	claimHandler := handler.NewClaimHandler(claimSvc)
 	chatHandler := handler.NewChatHandler(chatSvc, taskSvc, claimSvc)
-	userHandler := handler.NewUserHandler()
+	userHandler := handler.NewUserHandler(userSvc)
+	// nil when AWS_BUCKET_NAME is unset — the endpoint then reports 503.
+	uploadHandler := handler.NewUploadHandler(storage.NewUploader(context.Background()))
 
 	// Task routes
 	api.POST("/tasks", taskHandler.CreateTask)
 	api.GET("/tasks", taskHandler.GetOpenTasks)
+	api.GET("/tasks/search", taskHandler.SearchTasks)
 	api.GET("/tasks/my", taskHandler.GetUserTasks)
 
 	// Claim routes
@@ -137,8 +166,22 @@ func main() {
 	// Task routes (continued)
 	api.GET("/task/:id", taskHandler.GetTask)
 
+	// Payout routes (Stripe Connect)
+	connectHandler := handler.NewConnectHandler(connectSvc)
+	api.POST("/users/me/payouts/onboard", connectHandler.StartOnboarding)
+	api.GET("/users/me/payouts/status", connectHandler.PayoutStatus)
+
+	// Payment routes
+	api.GET("/tasks/:tid/payment-intent", handler.NewPaymentHandler(payments).GetClientSecret)
+
+	// Upload routes
+	api.POST("/upload/presign", uploadHandler.Presign)
+
 	// User routes
 	api.GET("/users/me", userHandler.GetMe)
+	api.PUT("/users/me/push-token", userHandler.UpdatePushToken)
+	api.PUT("/users/me/pubkey", userHandler.UpdatePublicKey)
+	api.GET("/users/:id/pubkey", userHandler.GetPublicKey)
 
 	// Server
 	port := os.Getenv("PORT")

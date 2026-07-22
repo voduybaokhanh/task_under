@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useTaskStore } from '../../store/useTaskStore';
@@ -14,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function TaskDetailScreen() {
   const route = useRoute();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const { taskId } = route.params as { taskId: string };
   const { selectedTask, claims, loading, fetchTask, fetchClaims, claimTask, submitCompletion } =
     useTaskStore();
@@ -80,6 +81,9 @@ export default function TaskDetailScreen() {
 
   return (
     <ScrollView style={styles.container}>
+      {selectedTask.image_url ? (
+        <Image source={{ uri: selectedTask.image_url }} style={styles.image} />
+      ) : null}
       <View style={styles.content}>
         <Text style={styles.title}>{selectedTask.title}</Text>
         <Text style={styles.reward}>${selectedTask.reward_amount.toFixed(2)}</Text>
@@ -181,6 +185,7 @@ export default function TaskDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  image: { width: '100%', height: 220, backgroundColor: '#111' },
   container: {
     flex: 1,
     backgroundColor: '#000',

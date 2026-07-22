@@ -1,5 +1,9 @@
 # Underground Task Marketplace
 
+[![Backend CI](https://github.com/voduybaokhanh/task_under/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/voduybaokhanh/task_under/actions/workflows/backend-ci.yml)
+[![Mobile CI](https://github.com/voduybaokhanh/task_under/actions/workflows/mobile-ci.yml/badge.svg)](https://github.com/voduybaokhanh/task_under/actions/workflows/mobile-ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 A privacy-focused, anonymous task-for-reward marketplace built with Go (backend) and React Native/Expo (mobile).
 
 ## Overview
@@ -23,7 +27,7 @@ This is an anonymous task marketplace where:
 - **Repository**: Data access layer (PostgreSQL)
 - **Service**: Business logic layer
 - **Handler**: HTTP request handlers (Gin)
-- **WebSocket**: Real-time communication hub
+- **WebSocket**: Real-time communication hub (Redis Pub/Sub fanout across instances)
 
 **Key Design Decisions:**
 
@@ -32,6 +36,7 @@ This is an anonymous task marketplace where:
 - Service layer encapsulates business rules
 - WebSocket hub for real-time updates
 - Background job for auto-cancelling expired tasks
+- Chat messages are stored as ciphertext: the server routes them but cannot read them
 
 ### Mobile (React Native + Expo)
 
@@ -86,13 +91,14 @@ This is an anonymous task marketplace where:
    - Opens on completion submission
    - Deletion removes for both participants
    - Re-opening creates new thread
+   - End-to-end encrypted (NaCl box / X25519); the backend stores only ciphertext
 
 ## Setup & Running
 
 ### Prerequisites
 
 - Go 1.22+
-- Node.js 18+
+- Node.js 20+ (22.6+ to run `npm test`, which uses Node's native TypeScript support)
 - Docker & Docker Compose
 - PostgreSQL 15–18 (or use Docker)
 - Redis (or use Docker)
@@ -159,26 +165,36 @@ Then press `i` for iOS simulator or `a` for Android emulator.
 ### Docker Compose (Full Stack)
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 This starts:
 
-- PostgreSQL on port 5432
+- PostgreSQL on port 5432 (set `POSTGRES_PORT` if that port is already taken)
 - Redis on port 6379
 - Backend on port 8080
+- Prometheus on port 9090
+- Grafana on port 3000 (admin/admin)
+
+Running several backend instances against the same Redis is supported: WebSocket
+events are fanned out over Pub/Sub, so a user connected to one instance still
+receives events emitted by another.
 
 ## API Endpoints
 
 ### Users
 
 - `GET /api/v1/users/me` - Get current user profile (reputation, earnings, spending)
+- `PUT /api/v1/users/me/push-token` - Register the device's Expo push token
+- `PUT /api/v1/users/me/pubkey` - Publish this device's X25519 public key (E2EE)
+- `GET /api/v1/users/:id/pubkey` - Fetch another user's public key
 
 ### Tasks
 
 - `POST /api/v1/tasks` - Create task
 - `GET /api/v1/tasks` - List open tasks
 - `GET /api/v1/tasks/my` - Get user's tasks
+- `GET /api/v1/tasks/search?q=&status=` - Full-text search (PostgreSQL tsvector)
 - `GET /api/v1/task/:id` - Get task details
 
 ### Claims
@@ -202,13 +218,49 @@ This starts:
 
 - `GET /ws` - WebSocket connection (requires X-Device-ID header)
 
+Events pushed to the client: `chat_message`, `claim_created`, `completion_submitted`,
+`claim_approved`, `claim_rejected`. The same events are sent as Expo push
+notifications when the user has registered a push token.
+
+### Payments
+
+- `GET /api/v1/tasks/:tid/payment-intent` - Client secret for the task's escrow hold (owner only; 503 without Stripe)
+- `POST /api/v1/users/me/payouts/onboard` - Stripe Connect onboarding URL for receiving earnings
+- `GET /api/v1/users/me/payouts/status` - Whether Stripe will pay this user yet
+- `POST /webhooks/stripe` - Stripe events, verified by signature (no device auth)
+
+### Uploads
+
+- `POST /api/v1/upload/presign` - Returns a presigned S3 PUT URL (15 min) plus the eventual public URL. Images only (jpeg/png/webp); returns 503 when `AWS_BUCKET_NAME` is unset
+
+### Operations
+
+- `GET /health` - Health check
+- `GET /metrics` - Prometheus metrics (requests, latency, active WebSockets, task counters)
+
 ## Testing
 
-Run backend tests:
+Run backend tests (no external services needed — Redis is faked in-process
+with miniredis):
 
 ```bash
 cd backend
-go test ./internal/service/...
+go test ./... -race
+```
+
+Mobile type check and unit tests (`node --test`, no test framework):
+
+```bash
+cd mobile
+npx tsc --noEmit
+npm test
+```
+
+With a backend running on :8080, the encrypted-chat path can be checked
+end to end:
+
+```bash
+npm run test:e2e
 ```
 
 Key test coverage:
@@ -216,46 +268,122 @@ Key test coverage:
 - Task auto-cancellation on expired deadlines
 - Claim limit enforcement
 - Escrow locking/releasing
+- WebSocket fanout across two instances over Redis, with no duplicate on the publisher
+- Notifications: who gets told about a chat message or claim, and what reaches Expo
+- E2EE: round trip, tamper detection, wrong-key rejection, and that the server
+  only ever stores ciphertext
+- Presigned uploads against a real S3 API (MinIO): upload succeeds, the object
+  is publicly readable, keys never collide, and expired URLs are refused
+- Stripe escrow: authorise without capturing, capture on approval, cancel an
+  uncaptured hold vs refund a captured one, declined cards, cents conversion,
+  and that only the owner can fetch a client secret
+- Stripe webhooks: real HMAC signatures, forged and stale signatures rejected
+- Connect payouts: the transfer goes to the claimer's account tied to the
+  originating charge, a claimer without an account leaves a retryable pending
+  payout instead of blocking approval, and a failed transfer is recorded
 
 ## Production Considerations
 
 ### Security
 
-- [ ] Add rate limiting per user (currently global)
+- [x] Per-device rate limiting (Redis sliding window, 60 req/min)
 - [ ] Implement proper CORS configuration
 - [ ] Add request validation middleware
 - [ ] Secure WebSocket connections (WSS)
 - [ ] Add input sanitization
-- [ ] Implement image upload with validation
+- [x] Image upload with content-type validation (presigned S3 URLs)
 
 ### Scalability
 
 - [ ] Add database connection pooling
 - [ ] Implement Redis caching for frequently accessed data
 - [ ] Add message queue for background jobs
-- [ ] Horizontal scaling for WebSocket connections
+- [x] Horizontal scaling for WebSocket connections (Redis Pub/Sub fanout)
 - [ ] Database read replicas
 
 ### Monitoring
 
 - [ ] Add structured logging
-- [ ] Metrics collection (Prometheus)
+- [x] Metrics collection (Prometheus + Grafana dashboards)
 - [ ] Error tracking (Sentry)
-- [ ] Health check endpoints
+- [x] Health check endpoints
+
+### Notifications
+
+- [x] Push notifications via Expo (claim, approval, rejection, submission, chat)
+- [ ] Notification preferences per user
 
 ### Payment Integration
 
-- [ ] Integrate real payment processor (Stripe, etc.)
-- [ ] Implement actual escrow service
-- [ ] Add payment webhooks
+- [x] Integrate real payment processor (Stripe PaymentIntents, manual capture)
+- [x] Implement actual escrow service (authorise → capture / refund)
+- [x] Add payment webhooks (signature-verified)
+- [x] Stripe Connect payouts to claimers (Express accounts, transfer on approval)
+- [ ] Retry job for payouts left pending while a claimer onboards
 
 ### Image Storage
 
-- [ ] Implement image upload to S3/Cloud Storage
-- [ ] Add image validation and processing
+- [x] Implement image upload to S3/Cloud Storage (presigned PUT, client uploads direct)
+- [ ] Add image validation and processing (size limits, re-encoding)
 - [ ] CDN for image delivery
 
 ## Changelog
+
+### v3 — Production Upgrades
+
+**CI/CD**
+- GitHub Actions: `backend-ci` (vet, lint, test, docker build), `mobile-ci` (npm ci, tsc, expo export), `release` (tag `v*` → image on GHCR)
+
+**Rate limiting**
+- Per-device Redis sliding window (60 req/min) replaces the global limiter; returns `429` with `X-RateLimit-Remaining` and `Retry-After`
+- No-op when Redis is absent, so local development needs no extra service
+
+**Observability**
+- Prometheus metrics: request counter, latency histogram, active WebSocket gauge, tasks created/completed
+- `/metrics` endpoint plus Prometheus and Grafana services with provisioned dashboards
+
+**Search**
+- `tasks.search_vector` (tsvector + GIN index, kept fresh by a trigger) and `GET /api/v1/tasks/search`, ranked with `ts_rank`
+- Mobile search bar calls the API with a 300 ms debounce instead of filtering locally
+
+**WebSocket scaling**
+- Hub fans out over Redis Pub/Sub (`ws:fanout`), so any instance can deliver to a user connected to any other; falls back to in-memory when Redis is absent
+- Fixed a latent data race: the broadcast paths mutated the client map under a read lock
+- The hub previously had no callers at all — services now emit events through a `Notifier` interface
+
+**Stripe payments**
+- Escrow is real when `STRIPE_SECRET_KEY` is set: locking a task authorises the owner's card with `capture_method: manual`, approval captures it, and cancellation refunds a captured payment or cancels an uncaptured hold
+- Falls back to the simulated escrow without a key, so local development needs no Stripe account
+- `POST /webhooks/stripe` verifies the signature (the endpoint is public, so that signature is the only gate) and syncs escrow status from `payment_intent.*` events
+- Amounts convert to minor units with rounding, so 25.50 is exactly 2550 cents
+- Mobile presents a Stripe PaymentSheet after a task is created, when built with `EXPO_PUBLIC_STRIPE_KEY`
+
+**Stripe Connect payouts**
+- Claimers onboard onto a Stripe Express account, so approved rewards are transferred to them instead of resting in the platform balance
+- Each transfer is tied to the charge it came from (`source_transaction`), keeping the money trail auditable
+- A claimer who has not onboarded still gets their task approved and the money captured; the payout row stays pending and can be retried once they connect an account
+- Profile screen shows payout status and links into Stripe's hosted onboarding
+
+**Image upload**
+- `POST /api/v1/upload/presign` hands out a 15-minute presigned S3 PUT URL; the file goes straight from the device to the bucket, so AWS credentials never leave the backend and no image bytes pass through it
+- Object keys are generated server-side (UUID under `task-images/`), so one client cannot overwrite another's image
+- Works with any S3-compatible service via `AWS_ENDPOINT_URL` — the tests run against MinIO, in CI too
+- Mobile: pick a photo in Create Task, preview it, and see it on the task detail screen
+
+**End-to-end encrypted chat**
+- Each device generates an X25519 key pair on first launch; the secret key stays in the OS keystore (`expo-secure-store`) and is never uploaded
+- Public keys are published to `users.public_key`; opening a chat fetches the other party's key and derives a shared secret with `nacl.box.before`
+- Messages travel as `E2E1.<nonce>.<ciphertext>` — the backend, the database and the push payload only ever hold ciphertext
+- Chat header shows `🔒 E2E Encrypted`, or `🔓 Not encrypted` when the other side has not published a key yet; pre-E2EE plaintext messages still render
+
+**Push notifications**
+- Expo push (no Firebase credentials required): `users.push_token`, `PUT /api/v1/users/me/push-token`, and `registerForPushNotifications()` on app start
+- Claim, approval, rejection, completion and chat events reach both the open app (WebSocket) and the closed one (push) via `MultiNotifier`
+- Push copy is generic ("Bạn có tin nhắn mới"), so an encrypted chat leaks nothing through the notification tray
+
+**Fixes**
+- The mobile app never opened its WebSocket connection: `WebSocketService` existed but had no callers. It is now connected at startup and routes `chat_message` into the chat store
+- Chat bubbles compared `sender_id` against the *device* ID, so no message was ever recognised as ours and everything rendered left-aligned
 
 ### v2 — UI/UX Level Up & PostgreSQL 18 Compatibility
 
@@ -302,11 +430,41 @@ Key test coverage:
 
 ## Known Limitations
 
-1. **Escrow**: Currently simulated, not real payment processing
-2. **Image Upload**: Placeholder only, needs S3/Cloud Storage integration
+1. **Escrow**: Stripe-backed when keys are configured, otherwise simulated. The
+   mobile payment sheet is written but unverified — it needs a real publishable
+   key to exercise. Payouts left pending (claimer not yet onboarded) are not
+   retried automatically yet
+2. **Image Upload**: Requires an S3 bucket; no server-side size limit or re-encoding yet
 3. **Arbitration**: Owner-only, no third-party arbitration yet
-4. **Rate Limiting**: Global rate limit, should be per-user
-5. **WebSocket**: Single instance only, needs Redis pub/sub for scaling
+4. **Stripe payments**
+- Escrow is real when `STRIPE_SECRET_KEY` is set: locking a task authorises the owner's card with `capture_method: manual`, approval captures it, and cancellation refunds a captured payment or cancels an uncaptured hold
+- Falls back to the simulated escrow without a key, so local development needs no Stripe account
+- `POST /webhooks/stripe` verifies the signature (the endpoint is public, so that signature is the only gate) and syncs escrow status from `payment_intent.*` events
+- Amounts convert to minor units with rounding, so 25.50 is exactly 2550 cents
+- Mobile presents a Stripe PaymentSheet after a task is created, when built with `EXPO_PUBLIC_STRIPE_KEY`
+
+**Stripe Connect payouts**
+- Claimers onboard onto a Stripe Express account, so approved rewards are transferred to them instead of resting in the platform balance
+- Each transfer is tied to the charge it came from (`source_transaction`), keeping the money trail auditable
+- A claimer who has not onboarded still gets their task approved and the money captured; the payout row stays pending and can be retried once they connect an account
+- Profile screen shows payout status and links into Stripe's hosted onboarding
+
+**Image upload**
+- `POST /api/v1/upload/presign` hands out a 15-minute presigned S3 PUT URL; the file goes straight from the device to the bucket, so AWS credentials never leave the backend and no image bytes pass through it
+- Object keys are generated server-side (UUID under `task-images/`), so one client cannot overwrite another's image
+- Works with any S3-compatible service via `AWS_ENDPOINT_URL` — the tests run against MinIO, in CI too
+- Mobile: pick a photo in Create Task, preview it, and see it on the task detail screen
+
+**End-to-end encrypted chat**
+- Each device generates an X25519 key pair on first launch; the secret key stays in the OS keystore (`expo-secure-store`) and is never uploaded
+- Public keys are published to `users.public_key`; opening a chat fetches the other party's key and derives a shared secret with `nacl.box.before`
+- Messages travel as `E2E1.<nonce>.<ciphertext>` — the backend, the database and the push payload only ever hold ciphertext
+- Chat header shows `🔒 E2E Encrypted`, or `🔓 Not encrypted` when the other side has not published a key yet; pre-E2EE plaintext messages still render
+
+**Push notifications**: Expo push service only; no Firebase/APNs credentials of our own
+5. **E2EE key trust**: public keys are served by the backend and taken on
+   trust — no out-of-band verification (safety numbers), so a malicious server
+   could substitute a key. Losing the device loses the message history, by design
 
 ## Future Improvements
 

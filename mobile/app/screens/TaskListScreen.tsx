@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTaskStore } from '../../store/useTaskStore';
+import { apiService } from '../../services/api';
 import { Task } from '../../types';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -42,23 +43,47 @@ const FILTERS = ['all', 'open', 'claimed', 'completed'] as const;
 type Filter = typeof FILTERS[number];
 
 export default function TaskListScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const { tasks, loading, error, fetchOpenTasks } = useTaskStore();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  // Server-side full-text search results; null means "not searching" → use store list.
+  const [searchResults, setSearchResults] = useState<Task[] | null>(null);
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     fetchOpenTasks();
   }, []);
 
+  // Debounced full-text search: hits GET /tasks/search 300ms after the last keystroke.
+  useEffect(() => {
+    const q = search.trim();
+    if (!q) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    const handle = setTimeout(async () => {
+      try {
+        const status = filter === 'all' ? undefined : filter;
+        const results = await apiService.searchTasks(q, status);
+        setSearchResults(results);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(handle);
+  }, [search, filter]);
+
   const filtered = useMemo(() => {
-    return tasks.filter((t) => {
-      const matchFilter = filter === 'all' || t.status === filter;
-      const q = search.toLowerCase();
-      const matchSearch = !q || t.title.toLowerCase().includes(q) || t.description.toLowerCase().includes(q);
-      return matchFilter && matchSearch;
-    });
-  }, [tasks, search, filter]);
+    if (searchResults !== null) return searchResults;
+    return tasks.filter((t) => filter === 'all' || t.status === filter);
+  }, [tasks, filter, searchResults]);
 
   const renderTask = ({ item }: { item: Task }) => (
     <TouchableOpacity
@@ -99,6 +124,9 @@ export default function TaskListScreen() {
           placeholder="Search tasks..."
           placeholderTextColor="#555"
         />
+        {searching && (
+          <ActivityIndicator size="small" color="#4CAF50" style={styles.searchSpinner} />
+        )}
       </View>
 
       <View style={styles.filterRow}>
@@ -157,7 +185,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   createButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  searchRow: { padding: 12, paddingBottom: 4 },
+  searchRow: { padding: 12, paddingBottom: 4, justifyContent: 'center' },
+  searchSpinner: { position: 'absolute', right: 24, top: 22 },
   searchInput: {
     backgroundColor: '#111',
     borderWidth: 1,

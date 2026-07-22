@@ -5,6 +5,7 @@ export interface User {
   reputation: number;
   total_earned: number;
   total_spent: number;
+  public_key: string;
 }
 
 export interface Task {
@@ -18,6 +19,7 @@ export interface Task {
   owner_deadline: string;
   status: 'open' | 'claimed' | 'completed' | 'cancelled' | 'disputed';
   escrow_locked: boolean;
+  image_url: string;
   created_at: string;
   updated_at: string;
 }

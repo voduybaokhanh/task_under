@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -11,6 +11,11 @@ import CreateTaskScreen from './screens/CreateTaskScreen';
 import MyTasksScreen from './screens/MyTasksScreen';
 import ChatScreen from './screens/ChatScreen';
 import ProfileScreen from './screens/ProfileScreen';
+import { registerForPushNotifications } from '../services/notifications';
+import { publishPublicKey } from '../services/keys';
+import { connectRealtime, disconnectRealtime } from '../services/realtime';
+import { cardPaymentsEnabled, stripePublishableKey } from '../services/payment';
+import { StripeProvider } from '@stripe/stripe-react-native';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -51,7 +56,16 @@ function ProfileTab() {
 }
 
 export default function App() {
-  return (
+  useEffect(() => {
+    registerForPushNotifications();
+    // Publish our E2EE public key so others can start an encrypted chat.
+    publishPublicKey().catch((error) => console.warn('Publishing public key failed', error));
+    connectRealtime().catch((error) => console.warn('Realtime connection failed', error));
+
+    return disconnectRealtime;
+  }, []);
+
+  const app = (
     <NavigationContainer>
       <StatusBar style="light" />
       <Tab.Navigator
@@ -81,5 +95,13 @@ export default function App() {
         <Tab.Screen name="ProfileTab" component={ProfileTab} options={{ title: 'Profile' }} />
       </Tab.Navigator>
     </NavigationContainer>
+  );
+
+  // Without a publishable key the Stripe provider has nothing to do, and the
+  // app runs on simulated escrow.
+  return cardPaymentsEnabled ? (
+    <StripeProvider publishableKey={stripePublishableKey}>{app}</StripeProvider>
+  ) : (
+    app
   );
 }

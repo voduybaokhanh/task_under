@@ -7,9 +7,12 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTaskStore } from '../../store/useTaskStore';
+import { pickImage, uploadImage } from '../../services/upload';
 
 function addDays(d: number): string {
   return new Date(Date.now() + d * 86400000).toISOString();
@@ -69,6 +72,15 @@ export default function CreateTaskScreen() {
   const [maxClaimants, setMaxClaimants] = useState('1');
   const [claimDays, setClaimDays] = useState(7);
   const [ownerDays, setOwnerDays] = useState(30);
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handlePickImage = async () => {
+    const uri = await pickImage();
+    if (uri) {
+      setImageUri(uri);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!title.trim() || !description.trim() || !rewardAmount) {
@@ -82,6 +94,18 @@ export default function CreateTaskScreen() {
     }
 
     try {
+      // Upload first: a task without its picture is better than a picture
+      // with no task.
+      let imageUrl = '';
+      if (imageUri) {
+        setUploading(true);
+        try {
+          imageUrl = await uploadImage(imageUri);
+        } finally {
+          setUploading(false);
+        }
+      }
+
       await createTask({
         title: title.trim(),
         description: description.trim(),
@@ -89,6 +113,7 @@ export default function CreateTaskScreen() {
         max_claimants: parseInt(maxClaimants) || 1,
         claim_deadline: addDays(claimDays),
         owner_deadline: addDays(ownerDays),
+        image_url: imageUrl,
       });
 
       Alert.alert('Task created!', 'Your task is now live.', [
@@ -168,12 +193,35 @@ export default function CreateTaskScreen() {
           Work must be approved by {new Date(Date.now() + ownerDays * 86400000).toLocaleDateString()}
         </Text>
 
+        <Text style={styles.label}>Image</Text>
+        {imageUri ? (
+          <View>
+            <Image source={{ uri: imageUri }} style={styles.preview} />
+            <View style={styles.imageActions}>
+              <TouchableOpacity onPress={handlePickImage}>
+                <Text style={styles.imageAction}>Change</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setImageUri(null)}>
+                <Text style={styles.imageActionRemove}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <TouchableOpacity style={styles.imagePicker} onPress={handlePickImage}>
+            <Text style={styles.imagePickerText}>+ Add a photo</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
-          style={[styles.submitButton, loading && styles.submitDisabled]}
+          style={[styles.submitButton, (loading || uploading) && styles.submitDisabled]}
           onPress={handleSubmit}
-          disabled={loading}
+          disabled={loading || uploading}
         >
-          <Text style={styles.submitText}>{loading ? 'Creating...' : 'Create Task'}</Text>
+          {uploading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.submitText}>{loading ? 'Creating...' : 'Create Task'}</Text>
+          )}
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -183,6 +231,20 @@ export default function CreateTaskScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   form: { padding: 16 },
+  imagePicker: {
+    borderWidth: 1,
+    borderColor: '#333',
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 24,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  imagePickerText: { color: '#888', fontSize: 14 },
+  preview: { width: '100%', height: 180, borderRadius: 12, backgroundColor: '#111' },
+  imageActions: { flexDirection: 'row', gap: 18, marginTop: 8, marginBottom: 16 },
+  imageAction: { color: '#4CAF50', fontSize: 13, fontWeight: '600' },
+  imageActionRemove: { color: '#c62828', fontSize: 13, fontWeight: '600' },
   label: {
     fontSize: 14,
     fontWeight: '600',

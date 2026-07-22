@@ -7,33 +7,34 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
+	"github.com/task-underground/backend/internal/metrics"
 )
 
 type Hub struct {
 	clients    map[uuid.UUID]*Client
-	broadcast  chan []byte
 	register   chan *Client
 	unregister chan *Client
 	mu         sync.RWMutex
+	redis      *redis.Client // nil → single-instance, in-memory only
 }
 
 type Client struct {
-	ID       uuid.UUID
-	UserID   uuid.UUID
-	Conn     *websocket.Conn
-	Send     chan []byte
-	Hub      *Hub
+	ID     uuid.UUID
+	UserID uuid.UUID
+	Conn   *websocket.Conn
+	Send   chan []byte
+	Hub    *Hub
 }
 
 type Message struct {
-	Type    string      `json:"type"`
-	Payload interface{} `json:"payload"`
+	Type    string `json:"type"`
+	Payload any    `json:"payload"`
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		clients:    make(map[uuid.UUID]*Client),
-		broadcast:  make(chan []byte),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 	}
@@ -46,6 +47,7 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			h.clients[client.ID] = client
 			h.mu.Unlock()
+			metrics.WSConnectionsActive.Inc()
 			log.Printf("Client connected: %s (user: %s)", client.ID, client.UserID)
 
 		case client := <-h.unregister:
@@ -53,70 +55,56 @@ func (h *Hub) Run() {
 			if _, ok := h.clients[client.ID]; ok {
 				delete(h.clients, client.ID)
 				close(client.Send)
+				metrics.WSConnectionsActive.Dec()
 			}
 			h.mu.Unlock()
 			log.Printf("Client disconnected: %s", client.ID)
-
-		case message := <-h.broadcast:
-			h.mu.RLock()
-			for _, client := range h.clients {
-				select {
-				case client.Send <- message:
-				default:
-					close(client.Send)
-					delete(h.clients, client.ID)
-				}
-			}
-			h.mu.RUnlock()
 		}
 	}
 }
 
-func (h *Hub) BroadcastToUser(userID uuid.UUID, message Message) {
+// NotifyUser implements service.Notifier so services can emit real-time
+// events without importing this package.
+func (h *Hub) NotifyUser(userID uuid.UUID, eventType string, payload any) {
+	h.send([]uuid.UUID{userID}, Message{Type: eventType, Payload: payload})
+}
+
+// send routes a message to the given users. With Redis configured it goes out
+// over Pub/Sub and comes back through this instance's own subscription, so
+// clients on every instance are reached exactly once.
+func (h *Hub) send(userIDs []uuid.UUID, message Message) {
 	data, err := json.Marshal(message)
 	if err != nil {
 		log.Printf("Error marshaling message: %v", err)
 		return
 	}
 
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	for _, client := range h.clients {
-		if client.UserID == userID {
-			select {
-			case client.Send <- data:
-			default:
-				close(client.Send)
-				delete(h.clients, client.ID)
-			}
-		}
-	}
-}
-
-func (h *Hub) BroadcastToTask(taskID uuid.UUID, message Message, userIDs []uuid.UUID) {
-	data, err := json.Marshal(message)
-	if err != nil {
-		log.Printf("Error marshaling message: %v", err)
+	if h.publish(userIDs, data) {
 		return
 	}
+	h.deliver(userIDs, data)
+}
 
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	userMap := make(map[uuid.UUID]bool)
+// deliver writes data to the locally connected clients belonging to userIDs.
+func (h *Hub) deliver(userIDs []uuid.UUID, data []byte) {
+	recipients := make(map[uuid.UUID]bool, len(userIDs))
 	for _, id := range userIDs {
-		userMap[id] = true
+		recipients[id] = true
 	}
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	for _, client := range h.clients {
-		if userMap[client.UserID] {
-			select {
-			case client.Send <- data:
-			default:
-				close(client.Send)
-				delete(h.clients, client.ID)
-			}
+		if !recipients[client.UserID] {
+			continue
+		}
+		select {
+		case client.Send <- data:
+		default:
+			close(client.Send)
+			delete(h.clients, client.ID)
+			metrics.WSConnectionsActive.Dec()
 		}
 	}
 }

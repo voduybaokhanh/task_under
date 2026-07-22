@@ -13,6 +13,7 @@ type TaskRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, error)
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID, limit, offset int) ([]*domain.Task, error)
 	GetOpenTasks(ctx context.Context, limit, offset int) ([]*domain.Task, error)
+	SearchTasks(ctx context.Context, query string, status domain.TaskStatus, limit, offset int) ([]*domain.Task, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.TaskStatus) error
 	SetEscrowLocked(ctx context.Context, id uuid.UUID, locked bool) error
 	GetTasksPastClaimDeadline(ctx context.Context) ([]*domain.Task, error)
@@ -35,27 +36,27 @@ func scanTask(row interface {
 		&task.ID, &task.OwnerID, &task.Title, &task.Description,
 		&task.RewardAmount, &task.MaxClaimants, &task.ClaimDeadline,
 		&task.OwnerDeadline, &task.Status, &task.EscrowLocked,
-		&task.CreatedAt, &task.UpdatedAt,
+		&task.ImageURL, &task.CreatedAt, &task.UpdatedAt,
 	)
 	return task, err
 }
 
 func (r *taskRepository) Create(ctx context.Context, task *domain.Task) error {
 	query := `
-		INSERT INTO tasks (id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked)
-		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO tasks (id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, image_url)
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING created_at, updated_at
 	`
 	return r.db.QueryRowContext(ctx, query,
 		task.ID.String(), task.OwnerID.String(),
 		task.Title, task.Description, task.RewardAmount, task.MaxClaimants,
-		task.ClaimDeadline, task.OwnerDeadline, task.Status, task.EscrowLocked,
+		task.ClaimDeadline, task.OwnerDeadline, task.Status, task.EscrowLocked, task.ImageURL,
 	).Scan(&task.CreatedAt, &task.UpdatedAt)
 }
 
 func (r *taskRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
 	const q = `
-		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, created_at, updated_at
+		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, image_url, created_at, updated_at
 		FROM tasks WHERE id = $1::uuid
 	`
 	task, err := scanTask(r.db.QueryRowContext(ctx, q, id.String()))
@@ -67,7 +68,7 @@ func (r *taskRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Tas
 
 func (r *taskRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID, limit, offset int) ([]*domain.Task, error) {
 	const q = `
-		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, created_at, updated_at
+		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, image_url, created_at, updated_at
 		FROM tasks WHERE owner_id = $1::uuid
 		ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`
@@ -81,11 +82,29 @@ func (r *taskRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID, li
 
 func (r *taskRepository) GetOpenTasks(ctx context.Context, limit, offset int) ([]*domain.Task, error) {
 	const q = `
-		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, created_at, updated_at
+		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, image_url, created_at, updated_at
 		FROM tasks WHERE status = 'open' AND claim_deadline > NOW()
 		ORDER BY created_at DESC LIMIT $1 OFFSET $2
 	`
 	rows, err := r.db.QueryContext(ctx, q, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
+func (r *taskRepository) SearchTasks(ctx context.Context, query string, status domain.TaskStatus, limit, offset int) ([]*domain.Task, error) {
+	// $2 = optional status filter ('' means "any status").
+	const q = `
+		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, image_url, created_at, updated_at
+		FROM tasks
+		WHERE search_vector @@ plainto_tsquery('english', $1)
+		  AND ($2 = '' OR status = $2)
+		ORDER BY ts_rank(search_vector, plainto_tsquery('english', $1)) DESC, created_at DESC
+		LIMIT $3 OFFSET $4
+	`
+	rows, err := r.db.QueryContext(ctx, q, query, string(status), limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +124,7 @@ func (r *taskRepository) SetEscrowLocked(ctx context.Context, id uuid.UUID, lock
 
 func (r *taskRepository) GetTasksPastClaimDeadline(ctx context.Context) ([]*domain.Task, error) {
 	const q = `
-		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, created_at, updated_at
+		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, image_url, created_at, updated_at
 		FROM tasks WHERE status = 'open' AND claim_deadline <= NOW()
 	`
 	rows, err := r.db.QueryContext(ctx, q)
@@ -118,7 +137,7 @@ func (r *taskRepository) GetTasksPastClaimDeadline(ctx context.Context) ([]*doma
 
 func (r *taskRepository) GetTasksPastOwnerDeadline(ctx context.Context) ([]*domain.Task, error) {
 	const q = `
-		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, created_at, updated_at
+		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, image_url, created_at, updated_at
 		FROM tasks WHERE status IN ('claimed', 'open') AND owner_deadline <= NOW()
 	`
 	rows, err := r.db.QueryContext(ctx, q)

@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/task-underground/backend/internal/domain"
 	"github.com/task-underground/backend/internal/middleware"
 	"github.com/task-underground/backend/internal/service"
 )
@@ -24,6 +25,7 @@ type CreateTaskRequest struct {
 	MaxClaimants  int     `json:"max_claimants" binding:"required,gt=0"`
 	ClaimDeadline string  `json:"claim_deadline" binding:"required"`
 	OwnerDeadline string  `json:"owner_deadline" binding:"required"`
+	ImageURL      string  `json:"image_url"`
 }
 
 func (h *TaskHandler) CreateTask(c *gin.Context) {
@@ -54,6 +56,7 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		MaxClaimants:  req.MaxClaimants,
 		ClaimDeadline: claimDeadline,
 		OwnerDeadline: ownerDeadline,
+		ImageURL:      req.ImageURL,
 	}
 
 	task, err := h.taskSvc.CreateTask(c.Request.Context(), userID, svcReq)
@@ -90,6 +93,21 @@ func (h *TaskHandler) GetOpenTasks(c *gin.Context) {
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 
 	tasks, err := h.taskSvc.GetOpenTasks(c.Request.Context(), limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"tasks": tasks})
+}
+
+func (h *TaskHandler) SearchTasks(c *gin.Context) {
+	query := c.Query("q")
+	status := domain.TaskStatus(c.Query("status"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+
+	tasks, err := h.taskSvc.SearchTasks(c.Request.Context(), query, status, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -29,7 +29,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function MyTasksScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const { myTasks, loading, error, fetchMyTasks } = useTaskStore();
 
   useEffect(() => {

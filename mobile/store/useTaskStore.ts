@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Task, Claim } from '../types';
 import { apiService } from '../services/api';
+import { cardPaymentsEnabled, payForTask } from '../services/payment';
 
 interface TaskState {
   tasks: Task[];
@@ -20,6 +21,7 @@ interface TaskState {
     max_claimants: number;
     claim_deadline: string;
     owner_deadline: string;
+    image_url?: string;
   }) => Promise<void>;
   claimTask: (taskId: string) => Promise<void>;
   fetchClaims: (taskId: string) => Promise<void>;
@@ -71,7 +73,12 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   createTask: async (data) => {
     set({ loading: true, error: null });
     try {
-      await apiService.createTask(data);
+      const task = await apiService.createTask(data);
+      // The backend put a hold on the card the moment the task existed; ask
+      // for the card now so that hold is backed by a real payment method.
+      if (cardPaymentsEnabled) {
+        await payForTask(task.id);
+      }
       await get().fetchOpenTasks();
       await get().fetchMyTasks();
       set({ loading: false });

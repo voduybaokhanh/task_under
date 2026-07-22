@@ -28,7 +28,8 @@ class ApiService {
     });
   }
 
-  private async getDeviceId(): Promise<string | null> {
+  /** The identity every request is authenticated with. */
+  async getDeviceId(): Promise<string | null> {
     let deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY);
     if (!deviceId) {
       deviceId = this.generateDeviceId();
@@ -48,6 +49,49 @@ class ApiService {
     return response.data;
   }
 
+  async updatePushToken(pushToken: string): Promise<void> {
+    await this.client.put('/api/v1/users/me/push-token', { push_token: pushToken });
+  }
+
+  async updatePublicKey(publicKey: string): Promise<void> {
+    await this.client.put('/api/v1/users/me/pubkey', { public_key: publicKey });
+  }
+
+  /** Returns the other user's public key, or '' if they have not published one. */
+  async getPublicKey(userId: string): Promise<string> {
+    const response = await this.client.get<{ public_key: string }>(`/api/v1/users/${userId}/pubkey`);
+    return response.data.public_key;
+  }
+
+  async getPayoutStatus(): Promise<{ payouts_enabled: boolean; configured: boolean }> {
+    const response = await this.client.get('/api/v1/users/me/payouts/status');
+    return response.data;
+  }
+
+  async startPayoutOnboarding(): Promise<string> {
+    const response = await this.client.post<{ onboarding_url: string }>(
+      '/api/v1/users/me/payouts/onboard'
+    );
+    return response.data.onboarding_url;
+  }
+
+  async getPaymentIntent(taskId: string): Promise<{ client_secret: string }> {
+    const response = await this.client.get(`/api/v1/tasks/${taskId}/payment-intent`);
+    return response.data;
+  }
+
+  // Upload endpoints
+  async presignUpload(
+    filename: string,
+    contentType: string
+  ): Promise<{ upload_url: string; public_url: string; expires_in: number }> {
+    const response = await this.client.post('/api/v1/upload/presign', {
+      filename,
+      content_type: contentType,
+    });
+    return response.data;
+  }
+
   // Task endpoints
   async createTask(data: {
     title: string;
@@ -56,6 +100,7 @@ class ApiService {
     max_claimants: number;
     claim_deadline: string;
     owner_deadline: string;
+    image_url?: string;
   }): Promise<Task> {
     const response = await this.client.post<Task>('/api/v1/tasks', data);
     return response.data;
@@ -66,6 +111,13 @@ class ApiService {
       params: { limit, offset },
     });
     return response.data.tasks;
+  }
+
+  async searchTasks(query: string, status?: string, limit = 20, offset = 0): Promise<Task[]> {
+    const response = await this.client.get<{ tasks: Task[] }>('/api/v1/tasks/search', {
+      params: { q: query, status, limit, offset },
+    });
+    return response.data.tasks ?? [];
   }
 
   async getTask(id: string): Promise<Task> {

@@ -27,6 +27,7 @@ type Task struct {
 	OwnerDeadline time.Time  `json:"owner_deadline"`
 	Status        TaskStatus `json:"status"`
 	EscrowLocked  bool       `json:"escrow_locked"`
+	ImageURL      string     `json:"image_url"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
