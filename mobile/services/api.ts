@@ -63,6 +63,18 @@ class ApiService {
     return response.data.public_key;
   }
 
+  // Upload endpoints
+  async presignUpload(
+    filename: string,
+    contentType: string
+  ): Promise<{ upload_url: string; public_url: string; expires_in: number }> {
+    const response = await this.client.post('/api/v1/upload/presign', {
+      filename,
+      content_type: contentType,
+    });
+    return response.data;
+  }
+
   // Task endpoints
   async createTask(data: {
     title: string;
@@ -71,6 +83,7 @@ class ApiService {
     max_claimants: number;
     claim_deadline: string;
     owner_deadline: string;
+    image_url?: string;
   }): Promise<Task> {
     const response = await this.client.post<Task>('/api/v1/tasks', data);
     return response.data;

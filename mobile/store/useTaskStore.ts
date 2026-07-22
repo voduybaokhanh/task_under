@@ -20,6 +20,7 @@ interface TaskState {
     max_claimants: number;
     claim_deadline: string;
     owner_deadline: string;
+    image_url?: string;
   }) => Promise<void>;
   claimTask: (taskId: string) => Promise<void>;
   fetchClaims: (taskId: string) => Promise<void>;

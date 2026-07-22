@@ -25,6 +25,7 @@ type CreateTaskRequest struct {
 	MaxClaimants  int     `json:"max_claimants" binding:"required,gt=0"`
 	ClaimDeadline string  `json:"claim_deadline" binding:"required"`
 	OwnerDeadline string  `json:"owner_deadline" binding:"required"`
+	ImageURL      string  `json:"image_url"`
 }
 
 func (h *TaskHandler) CreateTask(c *gin.Context) {
@@ -55,6 +56,7 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		MaxClaimants:  req.MaxClaimants,
 		ClaimDeadline: claimDeadline,
 		OwnerDeadline: ownerDeadline,
+		ImageURL:      req.ImageURL,
 	}
 
 	task, err := h.taskSvc.CreateTask(c.Request.Context(), userID, svcReq)

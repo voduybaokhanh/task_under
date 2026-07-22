@@ -12,7 +12,7 @@ Thứ tự ưu tiên: impact cao → thấp, phụ thuộc kỹ thuật làm tr�
 - [x] Redis Pub/Sub WebSocket scaling — commit `552be30`, verify 2 instance thật + negative control không Redis
 - [x] Push notifications (Expo, không cần credentials Firebase) — kèm việc wire event vào hub (trước đó hub không có call site nào)
 - [x] E2EE chat — X25519 + nacl.box, khoá bí mật ở SecureStore, server chỉ giữ ciphertext
-- [ ] Image upload S3 — cần AWS credentials
+- [x] Image upload S3 — presigned PUT, test thật bằng MinIO (không cần AWS creds)
 - [ ] Stripe payment — cần Stripe keys
 
 ---
@@ -309,7 +309,7 @@ Thứ tự ưu tiên: impact cao → thấp, phụ thuộc kỹ thuật làm tr�
 | 9 | E2EE Chat | Cao | 12h | Rất cao |
 
 **Đã làm xong:** CI/CD, rate limit, Prometheus, search, Redis WebSocket, push notifications, E2EE chat.  
-**Còn lại đều cần credentials bên ngoài:** S3 (AWS), Stripe.
+**Còn lại:** Stripe (cần Stripe keys thật khi go-live; code + test chạy với Stripe API stub).
 
 **Nếu chỉ có 1 tuần:** làm Phase 1–4 (CI/CD, Rate Limit, Prometheus, Search) — đủ để nói "production-grade backend" trong interview.
 

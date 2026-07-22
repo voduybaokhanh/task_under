@@ -222,6 +222,10 @@ Events pushed to the client: `chat_message`, `claim_created`, `completion_submit
 `claim_approved`, `claim_rejected`. The same events are sent as Expo push
 notifications when the user has registered a push token.
 
+### Uploads
+
+- `POST /api/v1/upload/presign` - Returns a presigned S3 PUT URL (15 min) plus the eventual public URL. Images only (jpeg/png/webp); returns 503 when `AWS_BUCKET_NAME` is unset
+
 ### Operations
 
 - `GET /health` - Health check
@@ -261,6 +265,8 @@ Key test coverage:
 - Notifications: who gets told about a chat message or claim, and what reaches Expo
 - E2EE: round trip, tamper detection, wrong-key rejection, and that the server
   only ever stores ciphertext
+- Presigned uploads against a real S3 API (MinIO): upload succeeds, the object
+  is publicly readable, keys never collide, and expired URLs are refused
 
 ## Production Considerations
 
@@ -271,7 +277,7 @@ Key test coverage:
 - [ ] Add request validation middleware
 - [ ] Secure WebSocket connections (WSS)
 - [ ] Add input sanitization
-- [ ] Implement image upload with validation
+- [x] Image upload with content-type validation (presigned S3 URLs)
 
 ### Scalability
 
@@ -301,8 +307,8 @@ Key test coverage:
 
 ### Image Storage
 
-- [ ] Implement image upload to S3/Cloud Storage
-- [ ] Add image validation and processing
+- [x] Implement image upload to S3/Cloud Storage (presigned PUT, client uploads direct)
+- [ ] Add image validation and processing (size limits, re-encoding)
 - [ ] CDN for image delivery
 
 ## Changelog
@@ -328,6 +334,12 @@ Key test coverage:
 - Hub fans out over Redis Pub/Sub (`ws:fanout`), so any instance can deliver to a user connected to any other; falls back to in-memory when Redis is absent
 - Fixed a latent data race: the broadcast paths mutated the client map under a read lock
 - The hub previously had no callers at all — services now emit events through a `Notifier` interface
+
+**Image upload**
+- `POST /api/v1/upload/presign` hands out a 15-minute presigned S3 PUT URL; the file goes straight from the device to the bucket, so AWS credentials never leave the backend and no image bytes pass through it
+- Object keys are generated server-side (UUID under `task-images/`), so one client cannot overwrite another's image
+- Works with any S3-compatible service via `AWS_ENDPOINT_URL` — the tests run against MinIO, in CI too
+- Mobile: pick a photo in Create Task, preview it, and see it on the task detail screen
 
 **End-to-end encrypted chat**
 - Each device generates an X25519 key pair on first launch; the secret key stays in the OS keystore (`expo-secure-store`) and is never uploaded
@@ -390,9 +402,15 @@ Key test coverage:
 ## Known Limitations
 
 1. **Escrow**: Currently simulated, not real payment processing
-2. **Image Upload**: Placeholder only, needs S3/Cloud Storage integration
+2. **Image Upload**: Requires an S3 bucket; no server-side size limit or re-encoding yet
 3. **Arbitration**: Owner-only, no third-party arbitration yet
-4. **End-to-end encrypted chat**
+4. **Image upload**
+- `POST /api/v1/upload/presign` hands out a 15-minute presigned S3 PUT URL; the file goes straight from the device to the bucket, so AWS credentials never leave the backend and no image bytes pass through it
+- Object keys are generated server-side (UUID under `task-images/`), so one client cannot overwrite another's image
+- Works with any S3-compatible service via `AWS_ENDPOINT_URL` — the tests run against MinIO, in CI too
+- Mobile: pick a photo in Create Task, preview it, and see it on the task detail screen
+
+**End-to-end encrypted chat**
 - Each device generates an X25519 key pair on first launch; the secret key stays in the OS keystore (`expo-secure-store`) and is never uploaded
 - Public keys are published to `users.public_key`; opening a chat fetches the other party's key and derives a shared secret with `nacl.box.before`
 - Messages travel as `E2E1.<nonce>.<ciphertext>` — the backend, the database and the push payload only ever hold ciphertext

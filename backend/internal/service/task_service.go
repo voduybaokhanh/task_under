@@ -36,6 +36,7 @@ type CreateTaskRequest struct {
 	MaxClaimants  int       `json:"max_claimants"`
 	ClaimDeadline time.Time `json:"claim_deadline"`
 	OwnerDeadline time.Time `json:"owner_deadline"`
+	ImageURL      string    `json:"image_url"`
 }
 
 type taskService struct {
@@ -89,6 +90,7 @@ func (s *taskService) CreateTask(ctx context.Context, ownerID uuid.UUID, req Cre
 		OwnerDeadline: req.OwnerDeadline,
 		Status:        domain.TaskStatusOpen,
 		EscrowLocked:  false,
+		ImageURL:      req.ImageURL,
 	}
 
 	err := s.taskRepo.Create(ctx, task)

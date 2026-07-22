@@ -19,6 +19,7 @@ export interface Task {
   owner_deadline: string;
   status: 'open' | 'claimed' | 'completed' | 'cancelled' | 'disputed';
   escrow_locked: boolean;
+  image_url: string;
   created_at: string;
   updated_at: string;
 }

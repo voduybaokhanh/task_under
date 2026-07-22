@@ -18,6 +18,7 @@ import (
 	"github.com/task-underground/backend/internal/middleware"
 	"github.com/task-underground/backend/internal/repository"
 	"github.com/task-underground/backend/internal/service"
+	"github.com/task-underground/backend/internal/storage"
 	"github.com/task-underground/backend/internal/websocket"
 )
 
@@ -121,6 +122,8 @@ func main() {
 	claimHandler := handler.NewClaimHandler(claimSvc)
 	chatHandler := handler.NewChatHandler(chatSvc, taskSvc, claimSvc)
 	userHandler := handler.NewUserHandler(userSvc)
+	// nil when AWS_BUCKET_NAME is unset — the endpoint then reports 503.
+	uploadHandler := handler.NewUploadHandler(storage.NewUploader(context.Background()))
 
 	// Task routes
 	api.POST("/tasks", taskHandler.CreateTask)
@@ -145,6 +148,9 @@ func main() {
 
 	// Task routes (continued)
 	api.GET("/task/:id", taskHandler.GetTask)
+
+	// Upload routes
+	api.POST("/upload/presign", uploadHandler.Presign)
 
 	// User routes
 	api.GET("/users/me", userHandler.GetMe)

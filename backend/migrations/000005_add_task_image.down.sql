@@ -1,0 +1,1 @@
+ALTER TABLE tasks DROP COLUMN IF EXISTS image_url;
