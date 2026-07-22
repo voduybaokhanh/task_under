@@ -23,11 +23,13 @@ export class WebSocketService {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        this.ws = new WebSocket(this.url, [], {
+        // React Native's WebSocket accepts a third options arg (headers); the DOM
+        // lib types only allow two, so construct through `any`.
+        this.ws = new (WebSocket as any)(this.url, [], {
           headers: {
             'X-Device-ID': this.deviceId,
           },
-        } as any);
+        }) as WebSocket;
 
         this.ws.onopen = () => {
           console.log('WebSocket connected');

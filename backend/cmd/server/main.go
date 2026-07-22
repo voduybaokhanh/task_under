@@ -121,6 +121,7 @@ func main() {
 	// Task routes
 	api.POST("/tasks", taskHandler.CreateTask)
 	api.GET("/tasks", taskHandler.GetOpenTasks)
+	api.GET("/tasks/search", taskHandler.SearchTasks)
 	api.GET("/tasks/my", taskHandler.GetUserTasks)
 
 	// Claim routes

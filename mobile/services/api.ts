@@ -68,6 +68,13 @@ class ApiService {
     return response.data.tasks;
   }
 
+  async searchTasks(query: string, status?: string, limit = 20, offset = 0): Promise<Task[]> {
+    const response = await this.client.get<{ tasks: Task[] }>('/api/v1/tasks/search', {
+      params: { q: query, status, limit, offset },
+    });
+    return response.data.tasks ?? [];
+  }
+
   async getTask(id: string): Promise<Task> {
     const response = await this.client.get<Task>(`/api/v1/tasks/${id}`);
     return response.data;

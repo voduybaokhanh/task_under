@@ -25,6 +25,7 @@ type TaskService interface {
 	GetTask(ctx context.Context, id uuid.UUID) (*domain.Task, error)
 	GetOpenTasks(ctx context.Context, limit, offset int) ([]*domain.Task, error)
 	GetUserTasks(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*domain.Task, error)
+	SearchTasks(ctx context.Context, query string, status domain.TaskStatus, limit, offset int) ([]*domain.Task, error)
 	AutoCancelExpiredTasks(ctx context.Context) error
 }
 
@@ -130,6 +131,16 @@ func (s *taskService) GetUserTasks(ctx context.Context, userID uuid.UUID, limit,
 		limit = 20
 	}
 	return s.taskRepo.GetByOwnerID(ctx, userID, limit, offset)
+}
+
+func (s *taskService) SearchTasks(ctx context.Context, query string, status domain.TaskStatus, limit, offset int) ([]*domain.Task, error) {
+	if query == "" {
+		return []*domain.Task{}, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	return s.taskRepo.SearchTasks(ctx, query, status, limit, offset)
 }
 
 func (s *taskService) AutoCancelExpiredTasks(ctx context.Context) error {

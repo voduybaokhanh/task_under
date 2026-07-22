@@ -115,6 +115,10 @@ func (m *mockTaskRepoForClaimSvc) GetOpenTasks(ctx context.Context, limit, offse
 	return result, nil
 }
 
+func (m *mockTaskRepoForClaimSvc) SearchTasks(ctx context.Context, query string, status domain.TaskStatus, limit, offset int) ([]*domain.Task, error) {
+	return nil, nil
+}
+
 func (m *mockTaskRepoForClaimSvc) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.TaskStatus) error {
 	task, ok := m.tasks[id]
 	if !ok {

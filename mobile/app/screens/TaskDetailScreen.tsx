@@ -14,7 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function TaskDetailScreen() {
   const route = useRoute();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const { taskId } = route.params as { taskId: string };
   const { selectedTask, claims, loading, fetchTask, fetchClaims, claimTask, submitCompletion } =
     useTaskStore();

@@ -13,6 +13,7 @@ type TaskRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Task, error)
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID, limit, offset int) ([]*domain.Task, error)
 	GetOpenTasks(ctx context.Context, limit, offset int) ([]*domain.Task, error)
+	SearchTasks(ctx context.Context, query string, status domain.TaskStatus, limit, offset int) ([]*domain.Task, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.TaskStatus) error
 	SetEscrowLocked(ctx context.Context, id uuid.UUID, locked bool) error
 	GetTasksPastClaimDeadline(ctx context.Context) ([]*domain.Task, error)
@@ -86,6 +87,24 @@ func (r *taskRepository) GetOpenTasks(ctx context.Context, limit, offset int) ([
 		ORDER BY created_at DESC LIMIT $1 OFFSET $2
 	`
 	rows, err := r.db.QueryContext(ctx, q, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
+func (r *taskRepository) SearchTasks(ctx context.Context, query string, status domain.TaskStatus, limit, offset int) ([]*domain.Task, error) {
+	// $2 = optional status filter ('' means "any status").
+	const q = `
+		SELECT id, owner_id, title, description, reward_amount, max_claimants, claim_deadline, owner_deadline, status, escrow_locked, created_at, updated_at
+		FROM tasks
+		WHERE search_vector @@ plainto_tsquery('english', $1)
+		  AND ($2 = '' OR status = $2)
+		ORDER BY ts_rank(search_vector, plainto_tsquery('english', $1)) DESC, created_at DESC
+		LIMIT $3 OFFSET $4
+	`
+	rows, err := r.db.QueryContext(ctx, q, query, string(status), limit, offset)
 	if err != nil {
 		return nil, err
 	}

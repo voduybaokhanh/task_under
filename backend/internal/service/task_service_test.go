@@ -49,6 +49,17 @@ func (m *mockTaskRepo) GetOpenTasks(ctx context.Context, limit, offset int) ([]*
 	return result, nil
 }
 
+func (m *mockTaskRepo) SearchTasks(ctx context.Context, query string, status domain.TaskStatus, limit, offset int) ([]*domain.Task, error) {
+	var result []*domain.Task
+	for _, task := range m.tasks {
+		if status != "" && task.Status != status {
+			continue
+		}
+		result = append(result, task)
+	}
+	return result, nil
+}
+
 func (m *mockTaskRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.TaskStatus) error {
 	task, ok := m.tasks[id]
 	if !ok {
