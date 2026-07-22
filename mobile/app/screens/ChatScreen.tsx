@@ -11,22 +11,34 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useChatStore } from '../../store/useChatStore';
 import { Message } from '../../types';
 
 export default function ChatScreen() {
   const route = useRoute();
+  const navigation = useNavigation();
   const { taskId, claimerId } = route.params as { taskId: string; claimerId?: string };
-  const { selectedChat, messages, loading, getOrCreateChat, sendMessage } = useChatStore();
+  const { selectedChat, messages, loading, myUserId, encrypted, getOrCreateChat, sendMessage } =
+    useChatStore();
   const [messageText, setMessageText] = useState('');
-  const [userId, setUserId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem('device_id').then(setUserId);
     getOrCreateChat(taskId, claimerId);
   }, [taskId, claimerId]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <View>
+          <Text style={styles.headerTitle}>Chat</Text>
+          <Text style={encrypted ? styles.headerBadge : styles.headerBadgeOff}>
+            {encrypted ? '🔒 E2E Encrypted' : '🔓 Not encrypted'}
+          </Text>
+        </View>
+      ),
+    });
+  }, [navigation, encrypted]);
 
   const handleSend = async () => {
     const text = messageText.trim();
@@ -38,8 +50,7 @@ export default function ChatScreen() {
   const chatMessages = selectedChat ? messages.get(selectedChat.id) || [] : [];
 
   const renderMessage = ({ item }: { item: Message }) => {
-    const isMe = item.sender_id === userId ||
-      (selectedChat && item.sender_id === selectedChat.participant_id && userId === null);
+    const isMe = item.sender_id === myUserId;
     return (
       <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
         <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}>
@@ -111,6 +122,9 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
+  headerTitle: { color: '#fff', fontSize: 17, fontWeight: 'bold' },
+  headerBadge: { color: '#4CAF50', fontSize: 11, marginTop: 1 },
+  headerBadgeOff: { color: '#888', fontSize: 11, marginTop: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { color: '#555', fontSize: 15 },
   list: { flex: 1 },

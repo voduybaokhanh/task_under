@@ -258,7 +258,10 @@ func TestClaimTaskLimitReached(t *testing.T) {
 	assert.Equal(t, ErrClaimLimitReached, err)
 }
 
-type mockUserRepo struct{ pushToken string }
+type mockUserRepo struct {
+	pushToken string
+	publicKey string
+}
 
 func (m *mockUserRepo) GetOrCreateByDeviceID(ctx context.Context, deviceID string) (*domain.User, error) {
 	return &domain.User{ID: uuid.New()}, nil
@@ -282,5 +285,10 @@ func (m *mockUserRepo) UpdateSpending(ctx context.Context, id uuid.UUID, amount 
 
 func (m *mockUserRepo) UpdatePushToken(ctx context.Context, id uuid.UUID, token string) error {
 	m.pushToken = token
+	return nil
+}
+
+func (m *mockUserRepo) UpdatePublicKey(ctx context.Context, id uuid.UUID, publicKey string) error {
+	m.publicKey = publicKey
 	return nil
 }

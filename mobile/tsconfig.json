@@ -4,6 +4,10 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // node --test runs the .ts sources directly, and Node requires the
+    // extension in relative imports.
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   }
 }

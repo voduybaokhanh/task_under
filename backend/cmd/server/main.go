@@ -149,6 +149,8 @@ func main() {
 	// User routes
 	api.GET("/users/me", userHandler.GetMe)
 	api.PUT("/users/me/push-token", userHandler.UpdatePushToken)
+	api.PUT("/users/me/pubkey", userHandler.UpdatePublicKey)
+	api.GET("/users/:id/pubkey", userHandler.GetPublicKey)
 
 	// Server
 	port := os.Getenv("PORT")

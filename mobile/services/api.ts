@@ -28,7 +28,8 @@ class ApiService {
     });
   }
 
-  private async getDeviceId(): Promise<string | null> {
+  /** The identity every request is authenticated with. */
+  async getDeviceId(): Promise<string | null> {
     let deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY);
     if (!deviceId) {
       deviceId = this.generateDeviceId();
@@ -50,6 +51,16 @@ class ApiService {
 
   async updatePushToken(pushToken: string): Promise<void> {
     await this.client.put('/api/v1/users/me/push-token', { push_token: pushToken });
+  }
+
+  async updatePublicKey(publicKey: string): Promise<void> {
+    await this.client.put('/api/v1/users/me/pubkey', { public_key: publicKey });
+  }
+
+  /** Returns the other user's public key, or '' if they have not published one. */
+  async getPublicKey(userId: string): Promise<string> {
+    const response = await this.client.get<{ public_key: string }>(`/api/v1/users/${userId}/pubkey`);
+    return response.data.public_key;
   }
 
   // Task endpoints

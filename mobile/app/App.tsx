@@ -12,6 +12,8 @@ import MyTasksScreen from './screens/MyTasksScreen';
 import ChatScreen from './screens/ChatScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import { registerForPushNotifications } from '../services/notifications';
+import { publishPublicKey } from '../services/keys';
+import { connectRealtime, disconnectRealtime } from '../services/realtime';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -54,6 +56,11 @@ function ProfileTab() {
 export default function App() {
   useEffect(() => {
     registerForPushNotifications();
+    // Publish our E2EE public key so others can start an encrypted chat.
+    publishPublicKey().catch((error) => console.warn('Publishing public key failed', error));
+    connectRealtime().catch((error) => console.warn('Realtime connection failed', error));
+
+    return disconnectRealtime;
   }, []);
 
   return (

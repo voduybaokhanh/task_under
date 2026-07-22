@@ -27,7 +27,7 @@ This is an anonymous task marketplace where:
 - **Repository**: Data access layer (PostgreSQL)
 - **Service**: Business logic layer
 - **Handler**: HTTP request handlers (Gin)
-- **WebSocket**: Real-time communication hub
+- **WebSocket**: Real-time communication hub (Redis Pub/Sub fanout across instances)
 
 **Key Design Decisions:**
 
@@ -36,6 +36,7 @@ This is an anonymous task marketplace where:
 - Service layer encapsulates business rules
 - WebSocket hub for real-time updates
 - Background job for auto-cancelling expired tasks
+- Chat messages are stored as ciphertext: the server routes them but cannot read them
 
 ### Mobile (React Native + Expo)
 
@@ -90,13 +91,14 @@ This is an anonymous task marketplace where:
    - Opens on completion submission
    - Deletion removes for both participants
    - Re-opening creates new thread
+   - End-to-end encrypted (NaCl box / X25519); the backend stores only ciphertext
 
 ## Setup & Running
 
 ### Prerequisites
 
 - Go 1.22+
-- Node.js 18+
+- Node.js 20+ (22.6+ to run `npm test`, which uses Node's native TypeScript support)
 - Docker & Docker Compose
 - PostgreSQL 15–18 (or use Docker)
 - Redis (or use Docker)
@@ -184,6 +186,8 @@ receives events emitted by another.
 
 - `GET /api/v1/users/me` - Get current user profile (reputation, earnings, spending)
 - `PUT /api/v1/users/me/push-token` - Register the device's Expo push token
+- `PUT /api/v1/users/me/pubkey` - Publish this device's X25519 public key (E2EE)
+- `GET /api/v1/users/:id/pubkey` - Fetch another user's public key
 
 ### Tasks
 
@@ -233,11 +237,19 @@ cd backend
 go test ./... -race
 ```
 
-Mobile type check:
+Mobile type check and unit tests (`node --test`, no test framework):
 
 ```bash
 cd mobile
 npx tsc --noEmit
+npm test
+```
+
+With a backend running on :8080, the encrypted-chat path can be checked
+end to end:
+
+```bash
+npm run test:e2e
 ```
 
 Key test coverage:
@@ -247,6 +259,8 @@ Key test coverage:
 - Escrow locking/releasing
 - WebSocket fanout across two instances over Redis, with no duplicate on the publisher
 - Notifications: who gets told about a chat message or claim, and what reaches Expo
+- E2EE: round trip, tamper detection, wrong-key rejection, and that the server
+  only ever stores ciphertext
 
 ## Production Considerations
 
@@ -315,9 +329,20 @@ Key test coverage:
 - Fixed a latent data race: the broadcast paths mutated the client map under a read lock
 - The hub previously had no callers at all — services now emit events through a `Notifier` interface
 
+**End-to-end encrypted chat**
+- Each device generates an X25519 key pair on first launch; the secret key stays in the OS keystore (`expo-secure-store`) and is never uploaded
+- Public keys are published to `users.public_key`; opening a chat fetches the other party's key and derives a shared secret with `nacl.box.before`
+- Messages travel as `E2E1.<nonce>.<ciphertext>` — the backend, the database and the push payload only ever hold ciphertext
+- Chat header shows `🔒 E2E Encrypted`, or `🔓 Not encrypted` when the other side has not published a key yet; pre-E2EE plaintext messages still render
+
 **Push notifications**
 - Expo push (no Firebase credentials required): `users.push_token`, `PUT /api/v1/users/me/push-token`, and `registerForPushNotifications()` on app start
 - Claim, approval, rejection, completion and chat events reach both the open app (WebSocket) and the closed one (push) via `MultiNotifier`
+- Push copy is generic ("Bạn có tin nhắn mới"), so an encrypted chat leaks nothing through the notification tray
+
+**Fixes**
+- The mobile app never opened its WebSocket connection: `WebSocketService` existed but had no callers. It is now connected at startup and routes `chat_message` into the chat store
+- Chat bubbles compared `sender_id` against the *device* ID, so no message was ever recognised as ours and everything rendered left-aligned
 
 ### v2 — UI/UX Level Up & PostgreSQL 18 Compatibility
 
@@ -367,7 +392,16 @@ Key test coverage:
 1. **Escrow**: Currently simulated, not real payment processing
 2. **Image Upload**: Placeholder only, needs S3/Cloud Storage integration
 3. **Arbitration**: Owner-only, no third-party arbitration yet
-4. **Push notifications**: Expo push service only; no Firebase/APNs credentials of our own
+4. **End-to-end encrypted chat**
+- Each device generates an X25519 key pair on first launch; the secret key stays in the OS keystore (`expo-secure-store`) and is never uploaded
+- Public keys are published to `users.public_key`; opening a chat fetches the other party's key and derives a shared secret with `nacl.box.before`
+- Messages travel as `E2E1.<nonce>.<ciphertext>` — the backend, the database and the push payload only ever hold ciphertext
+- Chat header shows `🔒 E2E Encrypted`, or `🔓 Not encrypted` when the other side has not published a key yet; pre-E2EE plaintext messages still render
+
+**Push notifications**: Expo push service only; no Firebase/APNs credentials of our own
+5. **E2EE key trust**: public keys are served by the backend and taken on
+   trust — no out-of-band verification (safety numbers), so a malicious server
+   could substitute a key. Losing the device loses the message history, by design
 
 ## Future Improvements
 

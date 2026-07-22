@@ -17,6 +17,7 @@ type UserService interface {
 	GetOrCreateUser(ctx context.Context, deviceID string) (*domain.User, error)
 	GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	UpdatePushToken(ctx context.Context, id uuid.UUID, token string) error
+	UpdatePublicKey(ctx context.Context, id uuid.UUID, publicKey string) error
 }
 
 type userService struct {
@@ -47,4 +48,11 @@ func (s *userService) UpdatePushToken(ctx context.Context, id uuid.UUID, token s
 		return errors.New("push token is required")
 	}
 	return s.userRepo.UpdatePushToken(ctx, id, token)
+}
+
+func (s *userService) UpdatePublicKey(ctx context.Context, id uuid.UUID, publicKey string) error {
+	if publicKey == "" {
+		return errors.New("public key is required")
+	}
+	return s.userRepo.UpdatePublicKey(ctx, id, publicKey)
 }

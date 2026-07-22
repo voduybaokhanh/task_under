@@ -5,6 +5,7 @@ export interface User {
   reputation: number;
   total_earned: number;
   total_spent: number;
+  public_key: string;
 }
 
 export interface Task {

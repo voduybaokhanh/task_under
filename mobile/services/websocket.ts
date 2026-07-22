@@ -1,6 +1,11 @@
 import { Message } from '../types';
 
-export type WSMessageType = 'task_update' | 'chat_message' | 'claim_update' | 'escrow_update';
+export type WSMessageType =
+  | 'chat_message'
+  | 'claim_created'
+  | 'completion_submitted'
+  | 'claim_approved'
+  | 'claim_rejected';
 
 export interface WSMessage {
   type: WSMessageType;
